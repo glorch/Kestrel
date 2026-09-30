@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,7 +24,7 @@
     body {
       background-color: var(--bg-base);
       color: var(--text-main);
-      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -54,9 +54,14 @@
       border-radius: 8px;
       font-size: 1.1rem;
     }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
     .nav-stats {
       display: flex;
-      gap: 20px;
+      gap: 12px;
       font-size: 0.85rem;
     }
     .stat-pill {
@@ -132,36 +137,72 @@
     }
     .badge-passed { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
     .badge-failed { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.3); }
-    .badge-running { background: rgba(56, 189, 248, 0.15); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-running { background: rgba(56, 189, 248, 0.15); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.3); animation: pulse 2s infinite; }
     .badge-cancelled { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
     .badge-pending { background: rgba(245, 158, 11, 0.15); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.3); }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
     .btn {
       background: var(--accent-blue);
       color: #04101e;
       border: none;
-      padding: 6px 14px;
+      padding: 7px 16px;
       border-radius: 6px;
       font-weight: 600;
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       transition: all 0.2s;
     }
     .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary { background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; font-weight: 700; box-shadow: 0 0 12px rgba(56, 189, 248, 0.3); }
     .btn-outline { background: transparent; color: var(--text-main); border: 1px solid var(--border-color); }
     .btn-outline:hover { background: var(--bg-card); }
     .btn-danger { background: var(--accent-rose); color: #fff; }
     .btn-success { background: var(--accent-green); color: #fff; }
+    .btn-amber { background: var(--accent-amber); color: #04101e; font-weight: 700; }
+
+    /* Modals */
     .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; z-index: 100;
+      position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);
+      display: none; justify-content: center; align-items: center; z-index: 100;
     }
     .modal-content {
-      background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; width: 90%; max-width: 800px;
-      max-height: 85vh; display: flex; flex-direction: column; overflow: hidden;
+      background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; width: 92%; max-width: 860px;
+      max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5);
     }
-    .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+    .modal-header { padding: 18px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+    .modal-body { padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; background: rgba(255,255,255,0.01); }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+    .form-control {
+      background: #050811; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 14px;
+      color: var(--text-main); font-family: inherit; font-size: 0.88rem; outline: none;
+    }
+    .form-control:focus { border-color: var(--accent-blue); }
+    .form-select {
+      background: #050811; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px;
+      color: var(--text-main); font-size: 0.88rem; outline: none;
+    }
+
+    textarea.code-editor {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.5; min-height: 280px; resize: vertical;
+    }
+
     .terminal-body {
       background: #050811; padding: 18px 24px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #cbd5e1;
-      overflow-y: auto; flex: 1; min-height: 350px; white-space: pre-wrap; line-height: 1.6;
+      overflow-y: auto; flex: 1; min-height: 380px; max-height: 550px; white-space: pre-wrap; line-height: 1.6;
+    }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px; background: var(--bg-card); border: 1px solid var(--accent-green);
+      color: var(--accent-green); padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 0.9rem;
+      display: none; z-index: 200; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
     }
   </style>
 </head>
@@ -171,10 +212,13 @@
       <span class="brand-icon">🦅</span>
       <span>Kestrel CI/CD Console</span>
     </div>
-    <div class="nav-stats">
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="openTriggerModal()">🚀 手动触发流水线</button>
+      <button class="btn btn-outline" onclick="openFreezeModal()">🔒 封网规则</button>
+      <button class="btn btn-outline" onclick="openQuotaModal()">👥 租户配额</button>
+      <button class="btn btn-outline" onclick="openOidcModal()">🔑 OIDC 凭据</button>
       <div class="stat-pill"><div class="pulse-dot"></div> <span id="runnerCount">0 Active Runners</span></div>
-      <div class="stat-pill">DORA Tier: <strong id="doraBadge" style="color:var(--accent-amber)">High</strong></div>
-      <button class="btn btn-outline" onclick="loadDashboard()">↻ Refresh</button>
+      <button class="btn btn-outline" onclick="loadDashboard()">↻ 刷新</button>
     </div>
   </header>
 
@@ -182,40 +226,41 @@
     <!-- KPI Overview -->
     <div class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-title">Deployment Frequency</div>
-        <div class="kpi-value" id="kpiFreq">0.0 / day</div>
-        <div class="kpi-sub">30-day rolling releases</div>
+        <div class="kpi-title">部署频率 (Deployment Frequency)</div>
+        <div class="kpi-value" id="kpiFreq">0.0 / 天</div>
+        <div class="kpi-sub">30 天滚动发布吞吐量</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">Lead Time for Changes</div>
+        <div class="kpi-title">变更前置时间 (Lead Time)</div>
         <div class="kpi-value" id="kpiLeadTime">0s</div>
-        <div class="kpi-sub">Median commit-to-deploy duration</div>
+        <div class="kpi-sub">从提交代码到上线中位数</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">Change Failure Rate</div>
+        <div class="kpi-title">变更失败率 (Failure Rate)</div>
         <div class="kpi-value" id="kpiFailureRate" style="color:var(--accent-green)">0.0%</div>
-        <div class="kpi-sub">Production regressions / rollbacks</div>
+        <div class="kpi-sub">生产发布缺陷或回滚比率</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">Mean Time to Restore (MTTR)</div>
-        <div class="kpi-value" id="kpiMttr">0s</div>
-        <div class="kpi-sub">Avg service recovery speed</div>
+        <div class="kpi-title">DORA 效能总评级 (Overall Tier)</div>
+        <div class="kpi-value" id="doraBadge" style="color:var(--accent-amber)">High</div>
+        <div class="kpi-sub">恢复耗时 (MTTR): <span id="kpiMttr">0s</span></div>
       </div>
     </div>
 
     <!-- Active Approval Gates (if any) -->
-    <div class="section-card" id="approvalsCard" style="display:none">
-      <div class="section-header">
-        <div class="section-title">🚦 Deployment Approval Gates</div>
+    <div class="section-card" id="approvalsCard" style="display:none; border-color: rgba(245, 158, 11, 0.4);">
+      <div class="section-header" style="background: rgba(245, 158, 11, 0.05);">
+        <div class="section-title" style="color: var(--accent-amber)">🚦 待处理生产审批门禁 (Pending Approval Gates)</div>
       </div>
       <table>
         <thead>
           <tr>
-            <th>Gate ID</th>
-            <th>Run ID</th>
-            <th>Target Environment</th>
-            <th>Created At</th>
-            <th>Actions</th>
+            <th>审批单 ID</th>
+            <th>流水线 Run ID</th>
+            <th>作业 Job ID</th>
+            <th>目标环境</th>
+            <th>申请时间</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody id="approvalsTable"></tbody>
@@ -225,22 +270,26 @@
     <!-- Pipeline Runs History -->
     <div class="section-card">
       <div class="section-header">
-        <div class="section-title">📦 Pipeline Execution Runs</div>
+        <div class="section-title">📦 流水线执行历史 (Pipeline Execution Runs)</div>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <span style="font-size:0.8rem; color:var(--text-muted);"><input type="checkbox" id="autoPoll" checked> 实时自动轮询 (3s)</span>
+          <button class="btn btn-outline" style="font-size:0.78rem" onclick="triggerPresetDemo()">⚡ 快速运行测试流水线</button>
+        </div>
       </div>
       <table>
         <thead>
           <tr>
             <th>Run ID</th>
-            <th>Pipeline Name</th>
-            <th>Status</th>
-            <th>Duration</th>
-            <th>Trigger</th>
-            <th>Started At</th>
-            <th>Actions</th>
+            <th>流水线名称</th>
+            <th>状态</th>
+            <th>总耗时</th>
+            <th>触发源</th>
+            <th>启动时间</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody id="runsTable">
-          <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Loading pipeline history...</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">正在加载流水线执行数据...</td></tr>
         </tbody>
       </table>
     </div>
@@ -248,37 +297,427 @@
     <!-- Change Freeze Policies -->
     <div class="section-card">
       <div class="section-header">
-        <div class="section-title">🔒 Production Change Freeze Windows</div>
+        <div class="section-title">🔒 生产环境封网管控规则 (Change Freeze Windows)</div>
+        <button class="btn btn-outline" style="font-size:0.78rem" onclick="openFreezeModal()">+ 新增封网策略</button>
       </div>
       <table>
         <thead>
           <tr>
-            <th>Rule ID</th>
-            <th>Policy Name</th>
-            <th>Environments</th>
-            <th>Schedule Type</th>
-            <th>Status</th>
+            <th>规则 ID</th>
+            <th>策略名称</th>
+            <th>管控环境</th>
+            <th>起止时间</th>
+            <th>紧急绕过令牌</th>
+            <th>状态</th>
           </tr>
         </thead>
         <tbody id="freezeTable">
-          <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No active change freeze rules configured.</td></tr>
+          <tr><td colspan="6" style="text-align:center;color:var(--text-muted)">当前无生效的封网规则</td></tr>
         </tbody>
       </table>
     </div>
   </main>
 
-  <!-- Log Viewer Modal -->
-  <div class="modal-overlay" id="logModal" onclick="closeLogModal(event)">
+  <!-- 1. Trigger Pipeline Modal -->
+  <div class="modal-overlay" id="triggerModal" onclick="closeModalOnOverlay(event, 'triggerModal')">
     <div class="modal-content" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h3 id="modalTitle">Execution Logs</h3>
-        <button class="btn btn-outline" onclick="document.getElementById('logModal').style.display='none'">✕</button>
+        <h3>🚀 手动触发执行流水线</h3>
+        <button class="btn btn-outline" onclick="closeModal('triggerModal')">✕</button>
       </div>
-      <div class="terminal-body" id="modalLogs">Loading task logs...</div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>选择内置演示模板：</label>
+          <select class="form-select" id="templateSelect" onchange="loadSelectedTemplate()">
+            <option value="demo">⚡ 极速全流程演示 (Build, Test, Report)</option>
+            <option value="approval">🚦 生产部署 + 人工审批卡片 (Staging -> Prod Approval)</option>
+            <option value="matrix">🔲 多维构建矩阵 (OS: Linux/Windows, Go: 1.22/1.23)</option>
+            <option value="test_split">⚡ 测试用例并行切片均衡 (Parallel Test Split)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>流水线 YAML 定义 (.kestrel.yaml)：</label>
+          <textarea class="form-control code-editor" id="pipelineYAML"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('triggerModal')">取消</button>
+        <button class="btn btn-primary" onclick="submitPipelineTrigger()">▶ 立即触发执行</button>
+      </div>
     </div>
   </div>
 
+  <!-- 2. Change Freeze Modal -->
+  <div class="modal-overlay" id="freezeModal" onclick="closeModalOnOverlay(event, 'freezeModal')">
+    <div class="modal-content" onclick="event.stopPropagation()" style="max-width:550px">
+      <div class="modal-header">
+        <h3>🔒 登记生产环境封网窗口</h3>
+        <button class="btn btn-outline" onclick="closeModal('freezeModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>封网策略名称：</label>
+          <input class="form-control" id="freezeName" value="重大节日安全护网封网">
+        </div>
+        <div class="form-group">
+          <label>管控环境 (逗号分隔)：</label>
+          <input class="form-control" id="freezeEnv" value="production">
+        </div>
+        <div class="form-group">
+          <label>封网天数：</label>
+          <input class="form-control" type="number" id="freezeDays" value="3">
+        </div>
+        <div class="form-group">
+          <label>紧急特权绕过令牌 (Bypass Token)：</label>
+          <input class="form-control" id="freezeBypass" value="EMERGENCY-HOTFIX-PASS">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('freezeModal')">取消</button>
+        <button class="btn btn-danger" onclick="submitFreezeRule()">确认生效封网</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Quota Management Modal -->
+  <div class="modal-overlay" id="quotaModal" onclick="closeModalOnOverlay(event, 'quotaModal')">
+    <div class="modal-content" onclick="event.stopPropagation()" style="max-width:650px">
+      <div class="modal-header">
+        <h3>👥 多租户并发配额管控</h3>
+        <button class="btn btn-outline" onclick="closeModal('quotaModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>租户标识 (Tenant Name)：</label>
+          <input class="form-control" id="quotaTenant" placeholder="例如: payments, infra, search">
+        </div>
+        <div class="form-group">
+          <label>最大允许并发作业数 (Max Concurrent Jobs)：</label>
+          <input class="form-control" type="number" id="quotaLimit" value="5">
+        </div>
+        <button class="btn btn-primary" onclick="submitQuotaSet()">更新租户配额</button>
+        <hr style="border-color:var(--border-color); margin: 8px 0;">
+        <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">已配置租户配额与运行状态：</label>
+        <table>
+          <thead>
+            <tr><th>租户名称</th><th>并发上限</th><th>当前执行中</th></tr>
+          </thead>
+          <tbody id="quotaListTable">
+            <tr><td colspan="3" style="text-align:center;color:var(--text-muted)">暂无特定租户限额</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('quotaModal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. OIDC Tool Modal -->
+  <div class="modal-overlay" id="oidcModal" onclick="closeModalOnOverlay(event, 'oidcModal')">
+    <div class="modal-content" onclick="event.stopPropagation()" style="max-width:700px">
+      <div class="modal-header">
+        <h3>🔑 OIDC 零信任临时凭据置换</h3>
+        <button class="btn btn-outline" onclick="closeModal('oidcModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>受众标识 (Audience)：</label>
+          <input class="form-control" id="oidcAud" value="sts.amazonaws.com">
+        </div>
+        <div class="form-group">
+          <label>所属作业 (Job ID)：</label>
+          <input class="form-control" id="oidcJob" value="deploy-prod">
+        </div>
+        <div class="form-group">
+          <label>租户/团队 (Tenant)：</label>
+          <input class="form-control" id="oidcTenant" value="fintech-core">
+        </div>
+        <button class="btn btn-primary" onclick="submitGenerateOIDC()">生成已签名的 OIDC JWT 令牌</button>
+        <div class="form-group" style="margin-top:10px;">
+          <label>生成的 JWT 令牌 (Compact Token)：</label>
+          <textarea class="form-control" id="oidcTokenResult" style="height:90px; font-family:'JetBrains Mono', monospace; font-size:0.8rem;" readonly placeholder="点击上方按钮后展示生成结果"></textarea>
+        </div>
+        <button class="btn btn-outline" onclick="submitVerifyOIDC()">验证该令牌签名与有效性</button>
+        <div id="oidcVerifyResult" style="font-size:0.85rem; font-family:'JetBrains Mono', monospace; padding:10px; background:#050811; border-radius:6px; display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('oidcModal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Dark Terminal Log Viewer Modal -->
+  <div class="modal-overlay" id="logModal" onclick="closeModalOnOverlay(event, 'logModal')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modalTitle">实时执行日志</h3>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-outline" style="font-size:0.75rem" onclick="refreshCurrentLogs()">↻ 实时刷新</button>
+          <button class="btn btn-outline" onclick="closeModal('logModal')">✕</button>
+        </div>
+      </div>
+      <div class="terminal-body" id="modalLogs">正在拉取日志流...</div>
+    </div>
+  </div>
+
+  <div id="toast">操作成功</div>
+
   <script>
+    const TEMPLATES = {
+      demo: `version: "1.0"
+name: "fast-build-test-ci"
+jobs:
+  lint:
+    name: "代码静态检查"
+    runs-on: "host"
+    commands:
+      - "echo '[LINT] Checking syntax and security guidelines...'"
+      - "echo '[LINT] All 42 files conform to industrial standard.'"
+
+  test:
+    name: "单元测试与覆盖率"
+    runs-on: "host"
+    needs: [lint]
+    commands:
+      - "echo '[TEST] Running unit test suite...'"
+      - "echo '[TEST] PASS: 18/18 tests passed (coverage: 92.4%)'"
+
+  report:
+    name: "生成质量报告"
+    runs-on: "host"
+    needs: [test]
+    commands:
+      - "echo '[REPORT] Quality gate passed: 0 vulnerabilities found.'"`,
+
+      approval: `version: "1.0"
+name: "staging-to-prod-deploy"
+jobs:
+  stage-deploy:
+    name: "部署到预发环境"
+    runs-on: "host"
+    environment: "staging"
+    commands:
+      - "echo '[STAGING] Deploying container image v2.5.0 to Staging...'"
+      - "echo '[STAGING] Healthcheck HTTP 200 OK!'"
+
+  prod-deploy:
+    name: "生产发布 (需人工审批放行)"
+    runs-on: "host"
+    needs: [stage-deploy]
+    environment: "production"
+    approval: true
+    commands:
+      - "echo '[PROD] Manual approval granted! Deploying to Production cluster...'"
+      - "echo '[PROD] Release v2.5.0 live across all regions!'"` ,
+
+      matrix: `version: "1.0"
+name: "cross-platform-matrix"
+jobs:
+  matrix-test:
+    name: "多环境测试"
+    runs-on: "host"
+    matrix:
+      os: ["linux", "windows"]
+      go: ["1.22", "1.23"]
+    commands:
+      - "echo 'Running on \${{ matrix.os }} with Go \${{ matrix.go }}'"` ,
+
+      test_split: `version: "1.0"
+name: "test-parallel-slicing"
+jobs:
+  split-test:
+    name: "并行测试切片"
+    runs-on: "host"
+    steps:
+      - name: "切片测试"
+        uses: "actions/test-split"
+        with:
+          total-workers: "3"
+          worker-index: "0"`
+    };
+
+    let activeRunIDForLogs = null;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3000);
+    }
+
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function closeModalOnOverlay(e, id) { if (e.target.id === id) closeModal(id); }
+
+    function openTriggerModal() {
+      loadSelectedTemplate();
+      openModal('triggerModal');
+    }
+    function openFreezeModal() { openModal('freezeModal'); }
+    function openQuotaModal() {
+      fetchQuotas();
+      openModal('quotaModal');
+    }
+    function openOidcModal() { openModal('oidcModal'); }
+
+    function loadSelectedTemplate() {
+      const val = document.getElementById('templateSelect').value;
+      document.getElementById('pipelineYAML').value = TEMPLATES[val] || TEMPLATES.demo;
+    }
+
+    async function submitPipelineTrigger() {
+      const yaml = document.getElementById('pipelineYAML').value.trim();
+      if (!yaml) { alert("YAML 内容不能为空"); return; }
+      try {
+        const res = await fetch('/api/v1/runs/trigger', {
+          method: 'POST',
+          body: yaml
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          alert("触发失败: " + err);
+          return;
+        }
+        const data = await res.json();
+        closeModal('triggerModal');
+        showToast("✔ 流水线 " + data.run_id + " 已成功入队并调度执行！");
+        loadDashboard();
+      } catch (e) {
+        alert("网络请求失败: " + e);
+      }
+    }
+
+    async function triggerPresetDemo() {
+      try {
+        const res = await fetch('/api/v1/runs/trigger', {
+          method: 'POST',
+          body: TEMPLATES.demo
+        });
+        if (res.ok) {
+          const data = await res.json();
+          showToast("✔ 快速测试流水线 " + data.run_id + " 触发成功！");
+          loadDashboard();
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function submitFreezeRule() {
+      const name = document.getElementById('freezeName').value;
+      const env = document.getElementById('freezeEnv').value;
+      const days = parseInt(document.getElementById('freezeDays').value) || 2;
+      const bypass = document.getElementById('freezeBypass').value;
+
+      const payload = {
+        name: name,
+        type: 'date_range',
+        environments: env.split(',').map(s => s.trim()),
+        start_time: new Date().toISOString(),
+        end_time: new Date(Date.now() + days * 86400000).toISOString(),
+        allow_bypass: !!bypass,
+        bypass_tokens: bypass ? [bypass] : []
+      };
+
+      const res = await fetch('/api/v1/freeze/rules', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        closeModal('freezeModal');
+        showToast("✔ 生产封网规则已生效！");
+        loadDashboard();
+      } else {
+        alert("创建封网规则失败: " + await res.text());
+      }
+    }
+
+    async function fetchQuotas() {
+      try {
+        const res = await fetch('/api/v1/quotas');
+        if (res.ok) {
+          const quotas = await res.json() || {};
+          const tbody = document.getElementById('quotaListTable');
+          const keys = Object.keys(quotas);
+          if (keys.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">暂无特定租户限额</td></tr>';
+          } else {
+            tbody.innerHTML = keys.map(k => `
+              <tr>
+                <td><strong>${quotas[k].tenant_name}</strong></td>
+                <td>${quotas[k].max_concurrent}</td>
+                <td>${quotas[k].active_jobs}</td>
+              </tr>
+            `).join('');
+          }
+        }
+      } catch (e) { console.error(e); }
+    }
+
+    async function submitQuotaSet() {
+      const tenant = document.getElementById('quotaTenant').value.trim();
+      const limit = parseInt(document.getElementById('quotaLimit').value) || 5;
+      if (!tenant) { alert("租户名称不能为空"); return; }
+      const res = await fetch('/api/v1/quotas', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ tenant: tenant, max_concurrent: limit })
+      });
+      if (res.ok) {
+        showToast("✔ 租户 " + tenant + " 配额已更新为 " + limit);
+        fetchQuotas();
+      } else {
+        alert("更新配额失败");
+      }
+    }
+
+    async function submitGenerateOIDC() {
+      const aud = document.getElementById('oidcAud').value.trim();
+      const job = document.getElementById('oidcJob').value.trim();
+      const tenant = document.getElementById('oidcTenant').value.trim();
+      const res = await fetch('/api/v1/oidc/token', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          run_id: 'run-' + Date.now(),
+          job_id: job,
+          audience: aud,
+          tenant: tenant,
+          repository: 'glorch/kestrel'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('oidcTokenResult').value = data.token;
+        showToast("✔ OIDC JWT 令牌签发成功！");
+      } else {
+        alert("签发失败: " + await res.text());
+      }
+    }
+
+    async function submitVerifyOIDC() {
+      const token = document.getElementById('oidcTokenResult').value.trim();
+      const aud = document.getElementById('oidcAud').value.trim();
+      if (!token) { alert("请先生成令牌"); return; }
+      const res = await fetch('/api/v1/oidc/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ token: token, audience: aud })
+      });
+      const box = document.getElementById('oidcVerifyResult');
+      box.style.display = 'block';
+      if (res.ok) {
+        const data = await res.json();
+        box.style.color = '#4ade80';
+        box.textContent = "✔ 签名与受众校验通过！Claims: \n" + JSON.stringify(data.claims, null, 2);
+      } else {
+        box.style.color = '#fb7185';
+        box.textContent = "✘ 校验失败: " + await res.text();
+      }
+    }
+
     async function loadDashboard() {
       try {
         // 1. Fetch Runners
@@ -293,7 +732,7 @@
         if (doraRes.ok) {
           const dora = await doraRes.json();
           document.getElementById('doraBadge').textContent = dora.overall_tier;
-          document.getElementById('kpiFreq').textContent = dora.deployment_frequency_per_day.toFixed(2) + ' / day';
+          document.getElementById('kpiFreq').textContent = dora.deployment_frequency_per_day.toFixed(2) + ' / 天';
           document.getElementById('kpiLeadTime').textContent = formatDuration(dora.lead_time_median);
           document.getElementById('kpiFailureRate').textContent = (dora.change_failure_rate * 100).toFixed(1) + '%';
           document.getElementById('kpiMttr').textContent = formatDuration(dora.mean_time_to_restore);
@@ -310,11 +749,12 @@
             tbody.innerHTML = approvals.map(g => `
               <tr>
                 <td><code>${g.id}</code></td>
-                <td>${g.run_id}</td>
+                <td><strong>${g.run_id}</strong></td>
+                <td>${g.job_id}</td>
                 <td><span class="badge badge-pending">${g.environment}</span></td>
-                <td>${new Date(g.created_at).toLocaleString()}</td>
+                <td>${new Date(g.created_at).toLocaleTimeString()}</td>
                 <td>
-                  <button class="btn btn-success" onclick="approveGate('${g.id}')">Approve</button>
+                  <button class="btn btn-amber" onclick="approveGate('${g.id}')">✅ 审批放行</button>
                 </td>
               </tr>
             `).join('');
@@ -329,7 +769,9 @@
           const runs = await runsRes.json() || [];
           const tbody = document.getElementById('runsTable');
           if (runs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No recorded runs found</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)">
+              暂无执行记录。<button class="btn btn-outline" style="margin-left:12px;" onclick="triggerPresetDemo()">⚡ 快速运行测试流水线</button>
+            </td></tr>`;
           } else {
             tbody.innerHTML = runs.map(r => `
               <tr>
@@ -337,10 +779,10 @@
                 <td><strong>${r.pipeline_name}</strong></td>
                 <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
                 <td>${(r.duration_ms / 1000).toFixed(1)}s</td>
-                <td>${r.trigger}</td>
-                <td>${new Date(r.started_at).toLocaleString()}</td>
+                <td><span style="color:var(--text-muted)">${r.trigger}</span></td>
+                <td>${new Date(r.started_at).toLocaleTimeString()}</td>
                 <td>
-                  <button class="btn btn-outline" onclick="viewLogs('${r.id}')">Logs</button>
+                  <button class="btn btn-outline" style="font-size:0.75rem" onclick="viewLogs('${r.id}')">🔍 查看日志</button>
                 </td>
               </tr>
             `).join('');
@@ -358,12 +800,13 @@
                 <td><code>${f.id}</code></td>
                 <td><strong>${f.name}</strong></td>
                 <td>${f.environments.join(', ')}</td>
-                <td>${f.type}</td>
-                <td><span class="badge badge-failed">Active Freeze</span></td>
+                <td>${new Date(f.start_time).toLocaleDateString()} ~ ${new Date(f.end_time).toLocaleDateString()}</td>
+                <td><code>${f.bypass_tokens ? f.bypass_tokens.join(', ') : '无'}</code></td>
+                <td><span class="badge badge-failed">生效中</span></td>
               </tr>
             `).join('');
           } else {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No active change freeze rules configured.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">当前无生效的封网规则</td></tr>';
           }
         }
 
@@ -373,35 +816,36 @@
     }
 
     async function approveGate(id) {
-      if (!confirm("Confirm approval for gate " + id + "?")) return;
+      if (!confirm("确认放行审批门禁 " + id + " 吗？")) return;
       await fetch('/api/v1/approvals/approve', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({gate_id: id, approver: 'console-operator', comment: 'Approved via Web Console'})
+        body: JSON.stringify({gate_id: id, approver: 'console-operator', comment: '通过控制台审批放行'})
       });
+      showToast("✔ 审批已放行！流水线继续执行生产部署");
       loadDashboard();
     }
 
     async function viewLogs(runID) {
-      document.getElementById('modalTitle').textContent = 'Logs for Run ' + runID;
-      document.getElementById('modalLogs').textContent = 'Fetching streaming logs...';
-      document.getElementById('logModal').style.display = 'flex';
-      try {
-        const res = await fetch('/api/v1/tasks/logs?task_id=' + runID);
-        if (res.ok) {
-          const text = await res.text();
-          document.getElementById('modalLogs').textContent = text || 'No logs written for this run yet.';
-        } else {
-          document.getElementById('modalLogs').textContent = 'No log stream found for ' + runID;
-        }
-      } catch (e) {
-        document.getElementById('modalLogs').textContent = 'Error fetching logs: ' + e;
-      }
+      activeRunIDForLogs = runID;
+      document.getElementById('modalTitle').textContent = '流水线执行日志: ' + runID;
+      document.getElementById('modalLogs').textContent = '正在拉取实时日志流...';
+      openModal('logModal');
+      await refreshCurrentLogs();
     }
 
-    function closeLogModal(e) {
-      if (e.target.id === 'logModal') {
-        document.getElementById('logModal').style.display = 'none';
+    async function refreshCurrentLogs() {
+      if (!activeRunIDForLogs) return;
+      try {
+        const res = await fetch('/api/v1/tasks/logs?run_id=' + activeRunIDForLogs);
+        if (res.ok) {
+          const text = await res.text();
+          document.getElementById('modalLogs').textContent = text || '暂无日志输出。';
+        } else {
+          document.getElementById('modalLogs').textContent = '未检索到日志流。';
+        }
+      } catch (e) {
+        document.getElementById('modalLogs').textContent = '获取日志失败: ' + e;
       }
     }
 
@@ -411,9 +855,20 @@
       const sec = ms / 1000;
       if (sec < 60) return sec.toFixed(1) + 's';
       const min = sec / 60;
-      if (min < 60) return min.toFixed(1) + 'm';
-      return (min / 60).toFixed(1) + 'h';
+      if (min < 60) return min.toFixed(1) + '分';
+      return (min / 60).toFixed(1) + '小时';
     }
+
+    // Auto-polling interval
+    setInterval(() => {
+      const cb = document.getElementById('autoPoll');
+      if (cb && cb.checked) {
+        loadDashboard();
+        if (document.getElementById('logModal').style.display === 'flex') {
+          refreshCurrentLogs();
+        }
+      }
+    }, 3000);
 
     window.onload = loadDashboard;
   </script>

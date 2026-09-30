@@ -538,24 +538,50 @@ func (s *Server) HTTPHandler() http.Handler {
 		})
 	})
 
-	// REST API: Get task logs
+	// REST API: Get task or run logs
 	mainMux.HandleFunc("/api/v1/tasks/logs", func(w http.ResponseWriter, r *http.Request) {
 		taskID := r.URL.Query().Get("task_id")
-		if taskID == "" {
-			http.Error(w, "missing task_id", http.StatusBadRequest)
+		runID := r.URL.Query().Get("run_id")
+		if taskID == "" && runID == "" {
+			http.Error(w, "missing task_id or run_id", http.StatusBadRequest)
 			return
 		}
 		if s.logStore == nil {
 			http.Error(w, "log store not initialized", http.StatusInternalServerError)
 			return
 		}
-		data, err := s.logStore.Read(taskID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if taskID != "" {
+			data, err := s.logStore.Read(taskID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write(data)
 			return
 		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write(data)
+
+		// Aggregate logs for all tasks belonging to runID
+		jobRuns, _ := s.store.GetJobRuns(r.Context(), runID)
+		var combined []byte
+		if len(jobRuns) == 0 {
+			if d, err := s.logStore.Read(runID); err == nil && len(d) > 0 {
+				combined = d
+			}
+		} else {
+			for _, jr := range jobRuns {
+				d, _ := s.logStore.Read(jr.ID)
+				if len(d) > 0 {
+					combined = append(combined, []byte(fmt.Sprintf("--- [%s] %s (Status: %s) ---\n", jr.JobID, jr.JobName, jr.Status))...)
+					combined = append(combined, d...)
+					combined = append(combined, '\n')
+				}
+			}
+		}
+		if len(combined) == 0 {
+			combined = []byte(fmt.Sprintf("Pipeline %s execution in progress or waiting for runner to upload logs...\n", runID))
+		}
+		_, _ = w.Write(combined)
 	})
 
 	// REST API: List and add change freeze rules
