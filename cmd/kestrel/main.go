@@ -19,6 +19,7 @@ import (
 	"github.com/glorch/kestrel/pkg/dag"
 	"github.com/glorch/kestrel/pkg/engine"
 	"github.com/glorch/kestrel/pkg/logger"
+	"github.com/glorch/kestrel/pkg/notify"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/runner"
 	"github.com/glorch/kestrel/pkg/security"
@@ -51,6 +52,22 @@ var (
 	// Approval flags
 	approvalApprover string
 	approvalComment  string
+
+	// Freeze flags
+	freezeServerURL   string
+	freezeID          string
+	freezeName        string
+	freezeEnv         string
+	freezeDays        int
+	freezeBypassToken string
+
+	// Notify flags
+	notifyChannelType string
+	notifyWebhook     string
+	notifySecret      string
+	notifyTitle       string
+	notifyContent     string
+	notifyType        string
 )
 
 func findConfigFile(specified string) (string, error) {
@@ -443,6 +460,135 @@ func main() {
 	}
 	runsCmd.AddCommand(runsListCmd)
 
+	// --- FREEZE COMMAND ---
+	freezeCmd := &cobra.Command{
+		Use:   "freeze",
+		Short: "Manage production change freeze windows and policies",
+	}
+
+	freezeListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List active change freeze rules",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resp, err := http.Get(freezeServerURL + "/api/v1/freeze/rules")
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			var rules []*cd.FreezeRule
+			if err := json.NewDecoder(resp.Body).Decode(&rules); err != nil {
+				return err
+			}
+
+			if len(rules) == 0 {
+				fmt.Println("No active change freeze rules found.")
+				return nil
+			}
+
+			fmt.Println("Active Change Freeze Rules:")
+			for _, r := range rules {
+				fmt.Printf("  • [%s] %s | Envs: %v | Type: %s\n",
+					r.ID, color.YellowString(r.Name), r.Environments, r.Type)
+			}
+			return nil
+		},
+	}
+	freezeListCmd.Flags().StringVarP(&freezeServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+
+	freezeAddCmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add a temporary change freeze window",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if freezeID == "" {
+				freezeID = fmt.Sprintf("freeze-%d", time.Now().UnixNano()/1e6)
+			}
+			if freezeDays <= 0 {
+				freezeDays = 1
+			}
+
+			rule := cd.FreezeRule{
+				ID:           freezeID,
+				Name:         freezeName,
+				Type:         cd.FreezeDateRange,
+				Environments: strings.Split(freezeEnv, ","),
+				StartTime:    time.Now(),
+				EndTime:      time.Now().Add(time.Duration(freezeDays) * 24 * time.Hour),
+				AllowBypass:  freezeBypassToken != "",
+			}
+			if freezeBypassToken != "" {
+				rule.BypassTokens = []string{freezeBypassToken}
+			}
+
+			data, _ := json.Marshal(rule)
+			resp, err := http.Post(freezeServerURL+"/api/v1/freeze/rules", "application/json", bytes.NewReader(data))
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode >= 400 {
+				return fmt.Errorf("failed to add freeze rule, HTTP %d", resp.StatusCode)
+			}
+
+			fmt.Println(color.GreenString("✔ Change freeze rule '%s' (%s) registered successfully!", rule.Name, rule.ID))
+			return nil
+		},
+	}
+	freezeAddCmd.Flags().StringVarP(&freezeServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+	freezeAddCmd.Flags().StringVar(&freezeID, "id", "", "Freeze rule ID")
+	freezeAddCmd.Flags().StringVarP(&freezeName, "name", "n", "Emergency Production Freeze", "Freeze rule name")
+	freezeAddCmd.Flags().StringVarP(&freezeEnv, "env", "e", "production", "Target comma-separated environments")
+	freezeAddCmd.Flags().IntVarP(&freezeDays, "days", "d", 2, "Freeze window duration in days")
+	freezeAddCmd.Flags().StringVar(&freezeBypassToken, "bypass-token", "", "Emergency bypass secret token")
+
+	freezeCmd.AddCommand(freezeListCmd, freezeAddCmd)
+
+	// --- NOTIFY COMMAND ---
+	notifyCmd := &cobra.Command{
+		Use:   "notify",
+		Short: "Send alerts via ChatOps webhooks (Feishu, DingTalk, WeCom, Slack)",
+	}
+
+	notifySendCmd := &cobra.Command{
+		Use:   "send",
+		Short: "Send a notification message to configured webhook",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if notifyWebhook == "" {
+				return fmt.Errorf("missing --webhook parameter")
+			}
+			ch := notify.ChannelConfig{
+				Name:    "cli-alert",
+				Type:    notifyChannelType,
+				Webhook: notifyWebhook,
+				Secret:  notifySecret,
+				Enabled: true,
+			}
+			msg := &notify.Message{
+				Title:   notifyTitle,
+				Content: notifyContent,
+				Type:    notify.NotificationType(notifyType),
+			}
+
+			disp := notify.NewDispatcher([]notify.ChannelConfig{ch})
+			results := disp.Send(context.Background(), msg)
+			if len(results) > 0 && !results[0].Success {
+				return fmt.Errorf("dispatch error: %s", results[0].Error)
+			}
+
+			fmt.Println(color.GreenString("✔ Notification successfully sent to %s channel!", notifyChannelType))
+			return nil
+		},
+	}
+	notifySendCmd.Flags().StringVar(&notifyChannelType, "channel", "generic", "Channel type: feishu, dingtalk, wecom, slack, generic")
+	notifySendCmd.Flags().StringVarP(&notifyWebhook, "webhook", "w", "", "Target webhook URL")
+	notifySendCmd.Flags().StringVar(&notifySecret, "secret", "", "Webhook signing secret (for Feishu / DingTalk)")
+	notifySendCmd.Flags().StringVarP(&notifyTitle, "title", "t", "Kestrel Alert", "Message title")
+	notifySendCmd.Flags().StringVarP(&notifyContent, "content", "c", "Pipeline execution event notification", "Message content body")
+	notifySendCmd.Flags().StringVar(&notifyType, "type", "CUSTOM", "Event type (PIPELINE_SUCCESS, PIPELINE_FAILURE, APPROVAL_REQUEST, CUSTOM)")
+
+	notifyCmd.AddCommand(notifySendCmd)
+
 	// --- VERSION COMMAND ---
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -452,7 +598,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, serverCmd, runnerCmd, sbomCmd, approvalsCmd, runsCmd, versionCmd)
+	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, serverCmd, runnerCmd, sbomCmd, approvalsCmd, runsCmd, freezeCmd, notifyCmd, versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
