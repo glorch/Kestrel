@@ -23,6 +23,7 @@ type Server struct {
 	store         store.Store
 	logStore      store.LogStore
 	gateMgr       *cd.GateManager
+	freezeMgr     *cd.FreezeManager
 	webhookSecret string
 	runners       map[string]*rpc.RunnerInfo
 	queue         []*rpc.TaskSpec
@@ -43,6 +44,7 @@ func NewServer(st store.Store) *Server {
 		store:        st,
 		logStore:     ls,
 		gateMgr:      cd.NewGateManager(),
+		freezeMgr:    cd.NewFreezeManager(),
 		runners:      make(map[string]*rpc.RunnerInfo),
 		queue:        make([]*rpc.TaskSpec, 0),
 		inFlight:     make(map[string]*rpc.TaskSpec),
@@ -51,6 +53,11 @@ func NewServer(st store.Store) *Server {
 		runStageIdx:  make(map[string]int),
 		runJobStatus: make(map[string]map[string]string),
 	}
+}
+
+// FreezeManager returns the server's change freeze manager.
+func (s *Server) FreezeManager() *cd.FreezeManager {
+	return s.freezeMgr
 }
 
 // RegisterRunner handles runner agent registration.
@@ -231,6 +238,28 @@ func (s *Server) enqueueJob(runID, jobID string, job *pipeline.Job) {
 		TimeoutSec:    int(job.ParsedTimeout().Seconds()),
 		Retries:       job.Retries,
 		RetryInterval: job.RetryInterval,
+	}
+
+	// Check if target environment is currently blocked by change freeze calendar
+	if job.Environment != "" {
+		bypassToken := ""
+		if job.Env != nil {
+			bypassToken = job.Env["BYPASS_TOKEN"]
+		}
+		if allowed, reason := s.freezeMgr.CheckDeployment(job.Environment, time.Now(), bypassToken); !allowed {
+			if s.logStore != nil {
+				_ = s.logStore.Append(taskID, []byte(fmt.Sprintf("[CHANGE FREEZE BLOCKED] %s\n", reason)))
+			}
+			if statuses, exists := s.runJobStatus[runID]; exists {
+				statuses[jobID] = "FAILED"
+				go func() {
+					s.mu.Lock()
+					defer s.mu.Unlock()
+					s.checkAndProgressPipeline(context.Background(), runID)
+				}()
+			}
+			return
+		}
 	}
 
 	// Check if this job requires manual approval
@@ -415,6 +444,26 @@ func (s *Server) HTTPHandler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write(data)
+	})
+
+	// REST API: List and add change freeze rules
+	mainMux.HandleFunc("/api/v1/freeze/rules", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			var rule cd.FreezeRule
+			if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if rule.ID == "" {
+				rule.ID = fmt.Sprintf("freeze-%d", time.Now().UnixNano()/1e6)
+			}
+			s.freezeMgr.AddRule(&rule)
+			writeJSONResponse(w, map[string]interface{}{"status": "ADDED", "rule_id": rule.ID})
+			return
+		}
+
+		rules := s.freezeMgr.ListRules()
+		writeJSONResponse(w, rules)
 	})
 
 	return mainMux

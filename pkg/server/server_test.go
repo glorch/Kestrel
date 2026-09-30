@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,3 +215,76 @@ func TestServerApprovalGate(t *testing.T) {
 		t.Errorf("expected deploy task, got: %s", pollResp2.Task.JobID)
 	}
 }
+
+func TestServerChangeFreezeBlocked(t *testing.T) {
+	st := store.NewMemoryStore()
+	srv := NewServer(st)
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	// 1. Add active freeze rule via REST API
+	freezeRule := cd.FreezeRule{
+		ID:           "emergency-lockdown",
+		Name:         "Security Lockdown",
+		Type:         cd.FreezeDateRange,
+		Environments: []string{"production"},
+		StartTime:    time.Now().Add(-1 * time.Hour),
+		EndTime:      time.Now().Add(1 * time.Hour),
+	}
+	body, _ := json.Marshal(freezeRule)
+	resp, err := http.Post(ts.URL+"/api/v1/freeze/rules", "application/json", bytes.NewReader(body))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("failed to add freeze rule via REST: %v", err)
+	}
+
+	// 2. Query freeze rules
+	getResp, err := http.Get(ts.URL + "/api/v1/freeze/rules")
+	if err != nil || getResp.StatusCode != http.StatusOK {
+		t.Fatalf("failed to get freeze rules: %v", err)
+	}
+	var rules []*cd.FreezeRule
+	_ = json.NewDecoder(getResp.Body).Decode(&rules)
+	if len(rules) != 1 || rules[0].ID != "emergency-lockdown" {
+		t.Fatalf("unexpected rules list: %+v", rules)
+	}
+
+	// 3. Trigger deployment pipeline targeting production
+	pipelineYAML := `
+version: "1.0"
+name: "deploy-pipeline"
+jobs:
+  prod-deploy:
+    runs-on: host
+    environment: production
+    commands:
+      - echo "deploying"
+`
+	p, err := pipeline.Parse(strings.NewReader(pipelineYAML))
+	if err != nil {
+		t.Fatalf("failed to parse pipeline: %v", err)
+	}
+
+	ctx := context.Background()
+	runID, err := srv.TriggerPipeline(ctx, p, "manual")
+	if err != nil {
+		t.Fatalf("failed to trigger pipeline: %v", err)
+	}
+
+	// Let background pipeline progression run
+	time.Sleep(100 * time.Millisecond)
+
+	// Check that queue has no tasks for runner because production is frozen
+	pollResp, err := srv.PollTask(ctx, &rpc.PollTaskRequest{RunnerID: "r-1", Tags: []string{"host"}})
+	if err != nil || pollResp.HasTask {
+		t.Fatal("expected no tasks to be dispatched due to change freeze")
+	}
+
+	runRec, err := st.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("failed to get run: %v", err)
+	}
+	if runRec.Status != "FAILED" {
+		t.Errorf("expected run status FAILED due to change freeze blockage, got: %s", runRec.Status)
+	}
+}
+
