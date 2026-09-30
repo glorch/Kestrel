@@ -1,0 +1,23 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# Kestrel runtime artifacts
+.kestrel/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

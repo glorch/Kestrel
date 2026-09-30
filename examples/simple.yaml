@@ -1,0 +1,29 @@
+version: "1.0"
+name: "kestrel-parallel-example"
+
+jobs:
+  lint:
+    name: "Linter"
+    runs-on: "host"
+    commands:
+      - "echo 'Running code linting...'"
+
+  typecheck:
+    name: "Type Check"
+    runs-on: "host"
+    commands:
+      - "echo 'Checking types...'"
+
+  test:
+    name: "Unit Tests"
+    runs-on: "host"
+    needs: [lint, typecheck] # Waits for both lint and typecheck
+    commands:
+      - "echo 'Running tests after lint and typecheck passed...'"
+
+  build:
+    name: "Package Distribution"
+    runs-on: "host"
+    needs: [test]
+    commands:
+      - "echo 'Building production binary...'"

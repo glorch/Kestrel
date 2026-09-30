@@ -1,0 +1,30 @@
+version: "1.0"
+name: "kestrel-self-host"
+
+env:
+  GO111MODULE: "on"
+  CGO_ENABLED: "0"
+
+jobs:
+  lint:
+    name: "Code Linting"
+    runs-on: "host"
+    commands:
+      - "go vet ./..."
+
+  test:
+    name: "Unit Tests"
+    needs: [lint]
+    runs-on: "host"
+    commands:
+      - "go test -v ./pkg/..."
+
+  build:
+    name: "Compile Binary"
+    needs: [test]
+    runs-on: "host"
+    commands:
+      - "go build -ldflags=\"-s -w\" -o bin/kestrel.exe ./cmd/kestrel"
+    artifacts:
+      paths:
+        - "bin/kestrel.exe"

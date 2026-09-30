@@ -1,0 +1,20 @@
+version: "1.0"
+name: "kestrel-docker-example"
+
+jobs:
+  test:
+    name: "Run in Golang Container"
+    runs-on: "docker"
+    image: "golang:1.23-alpine"
+    commands:
+      - "go version"
+      - "echo 'Running inside containerized environment'"
+
+  inspect:
+    name: "Run in Alpine Container"
+    runs-on: "docker"
+    image: "alpine:latest"
+    needs: [test]
+    commands:
+      - "uname -a"
+      - "cat /etc/os-release"
