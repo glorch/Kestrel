@@ -31,6 +31,8 @@ It functions both as an effortless local pipeline executor (run pipelines locall
 - **🕸️ DAG Topological Scheduling**: Automatic dependency resolution and parallel stage batching powered by Kahn's algorithm (`needs: [...]`).
 - **🔲 Matrix Build Expansion**: Multi-dimensional matrix build matrix (`matrix: { os: [linux, win], go: [1.22, 1.23] }`) with automatic downstream dependency rewiring and variable substitution.
 - **🔀 Conditional Execution (`if: ...`)**: Support for `always()`, `success()`, `failure()`, and environment expressions (`${{ env.BRANCH == 'main' }}`).
+- **🔄 Fault-Tolerant Retries**: Configurable job and step-level retry policies (`retries: 2`, `retry-interval: "1s"`) to eliminate flaky network or transient build errors.
+- **🧩 Declarative Actions Ecosystem**: Reusable step plugins (`uses: actions/setup-go`, `actions/checkout`, `actions/upload-artifact`).
 - **🐳 Dual Runtime Drivers**:
   - **Docker Engine**: Isolated, reproducible container execution via native Docker SDK with automatic bind-mount workspace.
   - **Host / Shell**: Native execution across Linux, macOS, and Windows PowerShell for maximum raw speed.
@@ -38,16 +40,22 @@ It functions both as an effortless local pipeline executor (run pipelines locall
   - **Secrets Log Masking**: Automatic real-time redaction of sensitive credentials, passwords, and tokens (`***`) from stdout/stderr.
   - **CycloneDX 1.5 SBOM**: Automated Software Bill of Materials generation (`kestrel sbom`).
   - **Security Gate Policy**: Threshold enforcement on Critical/High vulnerabilities.
-- **🚦 CD Environment Governance & Manual Approval Gates**:
-  - Protects production environments by pausing pipelines at approval gates (`kestrel approvals list / approve`).
+- **🚦 CD Governance, Approval Gates & Change Freeze**:
+  - **Manual Approval Gates**: Protects production environments by pausing pipelines at approval gates (`kestrel approvals list / approve`).
+  - **Change Freeze Windows**: Policy calendar blocking risky releases during holidays, weekends, or promotions with token bypass (`kestrel freeze list / add`).
+  - **Progressive Canary Rollout**: Multi-stage traffic shifting with automated metric evaluation (error rate, p99 latency) and instant auto-rollback on regression.
+- **📣 ChatOps Multi-Channel Notification Hub**:
+  - Unified alert dispatcher supporting Feishu/Lark, WeChat Work (WeCom), DingTalk, and Slack with HMAC signature verification (`kestrel notify send`).
 - **🌐 Distributed Server ⇋ Runner Fleet**:
   - Central control plane (`kestrel server start`) with REST API, Webhooks, and task dispatching queue.
-  - Distributed runner daemon (`kestrel runner start`) with heartbeat, task polling, and real-time streaming logs.
+  - Distributed runner daemon (`kestrel runner start`) with heartbeat, task polling, and zero-memory-leak chunked disk log streaming.
 - **📦 Artifact Collection & Run History**: Automatic file archiving and persistent run history (`kestrel runs list`).
-- **🔍 CLI Toolchain**:
+- **🔍 Full CLI Toolchain**:
   - `kestrel run`: Execute pipelines locally or in CI environments.
   - `kestrel lint`: Static analysis for YAML syntax, missing dependencies, and dependency cycles.
   - `kestrel graph`: Print ASCII execution flowcharts or export GitHub-compatible Mermaid diagrams.
+  - `kestrel freeze`: Manage deployment freeze windows and policies.
+  - `kestrel notify`: Dispatch ChatOps notifications directly from scripts or pipelines.
 
 ---
 
@@ -168,13 +176,19 @@ kestrel server start --port 8080
 kestrel runner start --server http://localhost:8080 --tags host,docker --capacity 2
 ```
 
-#### CD Approval Gates & Security
+#### CD Approval Gates, Freeze & Notifications
 ```bash
 # List pending deployment approval gates
 kestrel approvals list
 
 # Approve a deployment gate
 kestrel approvals approve <gate-id> --approver alice --comment "LGTM"
+
+# Register a production change freeze window
+kestrel freeze add --name "National Holiday Freeze" --env production --days 7 --bypass-token "EMERGENCY-PASS"
+
+# Send ChatOps notification alert to Feishu / DingTalk / WeCom / Slack
+kestrel notify send --channel feishu --webhook https://open.feishu.cn/open-apis/bot/v2/hook/xxx --secret sec123 --title "Deploy Succeeded" --content "Service v2.4.0 live in production"
 
 # Generate CycloneDX 1.5 SBOM
 kestrel sbom --out sbom.json
@@ -190,20 +204,22 @@ kestrel runs list
 ```text
 Kestrel/
 ├── cmd/
-│   └── kestrel/             # Unified CLI (run, server, runner, approvals, sbom)
+│   └── kestrel/             # Unified CLI (run, server, runner, approvals, freeze, notify, sbom)
 ├── pkg/
 │   ├── artifact/            # Artifact archiving and persistence
-│   ├── cd/                  # CD environment governance and manual approval gates
+│   ├── cd/                  # CD approval gates, canary analyzer, and change freeze calendar
 │   ├── dag/                 # Directed Acyclic Graph resolver & visualizers
-│   ├── engine/              # Pipeline lifecycle orchestrator
+│   ├── engine/              # Pipeline lifecycle orchestrator with retry scheduling
 │   ├── executor/            # Execution drivers (Docker & Host)
 │   ├── logger/              # Thread-safe terminal stream logger with secrets masking
+│   ├── notify/              # Multi-channel ChatOps notification hub (Feishu, DingTalk, WeCom, Slack)
 │   ├── pipeline/            # YAML parser, matrix expansion, and condition evaluator
+│   ├── plugin/              # Declarative step actions & plugin registry (setup-go, checkout, etc.)
 │   ├── rpc/                 # Server ⇋ Runner distributed RPC protocol
-│   ├── runner/              # Distributed runner daemon
+│   ├── runner/              # Distributed runner daemon with streaming log upload
 │   ├── security/            # Secrets masking, CycloneDX SBOM, and vulnerability gates
-│   ├── server/              # Central control plane and task dispatcher
-│   ├── store/               # In-memory and persistent file run storage
+│   ├── server/              # Central control plane, queue scheduler, and REST API
+│   ├── store/               # In-memory, persistent run store and zero-OOM file log store
 │   ├── version/             # Build and release metadata
 │   └── webhook/             # Git Webhook signature verification and path filtering
 ├── test/
