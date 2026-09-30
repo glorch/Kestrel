@@ -73,6 +73,20 @@ var (
 	// Metrics flags
 	metricsServerURL string
 	metricsDays      int
+
+	// Quota flags
+	quotaServerURL string
+	quotaTenant    string
+	quotaLimit     int
+
+	// OIDC flags
+	oidcServerURL string
+	oidcRunID     string
+	oidcJobID     string
+	oidcAudience  string
+	oidcTenant    string
+	oidcRepo      string
+	oidcTokenStr  string
 )
 
 func findConfigFile(specified string) (string, error) {
@@ -631,6 +645,157 @@ func main() {
 	metricsDoraCmd.Flags().IntVarP(&metricsDays, "days", "d", 30, "Rolling analysis window in days")
 	metricsCmd.AddCommand(metricsDoraCmd)
 
+	// --- QUOTA COMMAND ---
+	quotaCmd := &cobra.Command{
+		Use:   "quota",
+		Short: "Manage multi-tenant concurrency quotas",
+	}
+
+	quotaListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all tenant concurrency quotas and current active jobs",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resp, err := http.Get(quotaServerURL + "/api/v1/quotas")
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			var quotas map[string]server.TenantQuota
+			if err := json.NewDecoder(resp.Body).Decode(&quotas); err != nil {
+				return err
+			}
+
+			fmt.Println(color.CyanString("\n👥 Tenant Concurrency Quotas"))
+			fmt.Println(strings.Repeat("-", 50))
+			if len(quotas) == 0 {
+				fmt.Println("  (No tenant-specific limits configured)")
+			} else {
+				for tenant, q := range quotas {
+					fmt.Printf("  • Tenant: %-15s | Max: %-3d | Active: %-3d\n", tenant, q.MaxConcurrent, q.ActiveJobs)
+				}
+			}
+			fmt.Println(strings.Repeat("-", 50) + "\n")
+			return nil
+		},
+	}
+	quotaListCmd.Flags().StringVarP(&quotaServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+
+	quotaSetCmd := &cobra.Command{
+		Use:   "set",
+		Short: "Set or update concurrency limit for a tenant",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if quotaTenant == "" {
+				return fmt.Errorf("missing --tenant parameter")
+			}
+			if quotaLimit <= 0 {
+				return fmt.Errorf("--limit must be greater than 0")
+			}
+
+			body, _ := json.Marshal(map[string]interface{}{
+				"tenant":         quotaTenant,
+				"max_concurrent": quotaLimit,
+			})
+			resp, err := http.Post(quotaServerURL+"/api/v1/quotas", "application/json", bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode >= 400 {
+				return fmt.Errorf("failed to set quota, HTTP %d", resp.StatusCode)
+			}
+			fmt.Println(color.GreenString("✔ Concurrency limit for tenant '%s' set to %d!", quotaTenant, quotaLimit))
+			return nil
+		},
+	}
+	quotaSetCmd.Flags().StringVarP(&quotaServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+	quotaSetCmd.Flags().StringVarP(&quotaTenant, "tenant", "t", "", "Tenant or team identifier")
+	quotaSetCmd.Flags().IntVarP(&quotaLimit, "limit", "l", 5, "Maximum concurrent jobs permitted")
+	quotaCmd.AddCommand(quotaListCmd, quotaSetCmd)
+
+	// --- OIDC COMMAND ---
+	oidcCmd := &cobra.Command{
+		Use:   "oidc",
+		Short: "OpenID Connect (OIDC) keyless cloud authentication CLI",
+	}
+
+	oidcTokenCmd := &cobra.Command{
+		Use:   "token",
+		Short: "Request an ephemeral OIDC JWT token for keyless cloud provider authentication",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if oidcAudience == "" {
+				return fmt.Errorf("missing --audience parameter")
+			}
+			body, _ := json.Marshal(security.OIDCTokenRequest{
+				RunID:      oidcRunID,
+				JobID:      oidcJobID,
+				Audience:   oidcAudience,
+				Repository: oidcRepo,
+				Tenant:     oidcTenant,
+			})
+			resp, err := http.Post(oidcServerURL+"/api/v1/oidc/token", "application/json", bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode >= 400 {
+				return fmt.Errorf("failed to obtain token, HTTP %d", resp.StatusCode)
+			}
+
+			var res map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+				return err
+			}
+
+			token, _ := res["token"].(string)
+			fmt.Println(token)
+			return nil
+		},
+	}
+	oidcTokenCmd.Flags().StringVarP(&oidcServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+	oidcTokenCmd.Flags().StringVarP(&oidcAudience, "audience", "a", "", "Target audience (e.g. sts.amazonaws.com or https://vault.corp.internal)")
+	oidcTokenCmd.Flags().StringVar(&oidcRunID, "run-id", "", "Pipeline run ID")
+	oidcTokenCmd.Flags().StringVar(&oidcJobID, "job-id", "", "Job ID")
+	oidcTokenCmd.Flags().StringVar(&oidcRepo, "repo", "", "Repository identifier")
+	oidcTokenCmd.Flags().StringVar(&oidcTenant, "tenant", "", "Tenant identifier")
+
+	oidcVerifyCmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify an OIDC JWT token signature and claims",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if oidcTokenStr == "" {
+				return fmt.Errorf("missing --token parameter")
+			}
+			body, _ := json.Marshal(map[string]interface{}{
+				"token":    oidcTokenStr,
+				"audience": oidcAudience,
+			})
+			resp, err := http.Post(oidcServerURL+"/api/v1/oidc/verify", "application/json", bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode >= 400 {
+				return fmt.Errorf("token verification failed, HTTP %d", resp.StatusCode)
+			}
+
+			var res map[string]interface{}
+			_ = json.NewDecoder(resp.Body).Decode(&res)
+			fmt.Println(color.GreenString("✔ OIDC Token is VALID!"))
+			formatted, _ := json.MarshalIndent(res["claims"], "", "  ")
+			fmt.Println(string(formatted))
+			return nil
+		},
+	}
+	oidcVerifyCmd.Flags().StringVarP(&oidcServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+	oidcVerifyCmd.Flags().StringVarP(&oidcTokenStr, "token", "t", "", "JWT token string to verify")
+	oidcVerifyCmd.Flags().StringVarP(&oidcAudience, "audience", "a", "", "Expected audience")
+
+	oidcCmd.AddCommand(oidcTokenCmd, oidcVerifyCmd)
+
 	// --- VERSION COMMAND ---
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -640,7 +805,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, serverCmd, runnerCmd, sbomCmd, approvalsCmd, runsCmd, freezeCmd, notifyCmd, metricsCmd, versionCmd)
+	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, serverCmd, runnerCmd, sbomCmd, approvalsCmd, runsCmd, freezeCmd, notifyCmd, metricsCmd, quotaCmd, oidcCmd, versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
