@@ -21,16 +21,16 @@ import (
 type Server struct {
 	mu            sync.RWMutex
 	store         store.Store
+	logStore      store.LogStore
 	gateMgr       *cd.GateManager
 	webhookSecret string
 	runners       map[string]*rpc.RunnerInfo
-	queue        []*rpc.TaskSpec
-	inFlight     map[string]*rpc.TaskSpec
-	taskLogs     map[string]*strings.Builder
-	runPipelines map[string]*pipeline.Pipeline // runID -> parsed pipeline
-	runBatches   map[string][][]string         // runID -> stages
-	runStageIdx  map[string]int                // runID -> current stage index
-	runJobStatus map[string]map[string]string  // runID -> jobID -> status
+	queue         []*rpc.TaskSpec
+	inFlight      map[string]*rpc.TaskSpec
+	runPipelines  map[string]*pipeline.Pipeline // runID -> parsed pipeline
+	runBatches    map[string][][]string         // runID -> stages
+	runStageIdx   map[string]int                // runID -> current stage index
+	runJobStatus  map[string]map[string]string  // runID -> jobID -> status
 }
 
 // NewServer creates a new Kestrel control plane server.
@@ -38,13 +38,14 @@ func NewServer(st store.Store) *Server {
 	if st == nil {
 		st = store.NewMemoryStore()
 	}
+	ls, _ := store.NewFileLogStore("")
 	return &Server{
 		store:        st,
+		logStore:     ls,
 		gateMgr:      cd.NewGateManager(),
 		runners:      make(map[string]*rpc.RunnerInfo),
 		queue:        make([]*rpc.TaskSpec, 0),
 		inFlight:     make(map[string]*rpc.TaskSpec),
-		taskLogs:     make(map[string]*strings.Builder),
 		runPipelines: make(map[string]*pipeline.Pipeline),
 		runBatches:   make(map[string][][]string),
 		runStageIdx:  make(map[string]int),
@@ -110,12 +111,9 @@ func (s *Server) SendLogChunk(ctx context.Context, req *rpc.LogChunkRequest) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sb, ok := s.taskLogs[req.TaskID]
-	if !ok {
-		sb = &strings.Builder{}
-		s.taskLogs[req.TaskID] = sb
+	if s.logStore != nil {
+		return s.logStore.Append(req.TaskID, []byte(req.Chunk))
 	}
-	sb.WriteString(req.Chunk)
 	return nil
 }
 
@@ -397,7 +395,39 @@ func (s *Server) HTTPHandler() http.Handler {
 		})
 	})
 
+	// REST API: Get task logs
+	mainMux.HandleFunc("/api/v1/tasks/logs", func(w http.ResponseWriter, r *http.Request) {
+		taskID := r.URL.Query().Get("task_id")
+		if taskID == "" {
+			http.Error(w, "missing task_id", http.StatusBadRequest)
+			return
+		}
+		if s.logStore == nil {
+			http.Error(w, "log store not initialized", http.StatusInternalServerError)
+			return
+		}
+		data, err := s.logStore.Read(taskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write(data)
+	})
+
 	return mainMux
+}
+
+// SetLogStore configures a custom LogStore backend.
+func (s *Server) SetLogStore(ls store.LogStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logStore = ls
+}
+
+// LogStore returns the server's log store.
+func (s *Server) LogStore() store.LogStore {
+	return s.logStore
 }
 
 // SetWebhookSecret configures the shared HMAC secret for webhook signature validation.
