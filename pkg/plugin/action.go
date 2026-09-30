@@ -6,12 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/glorch/kestrel/pkg/cache"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/security"
+	"github.com/glorch/kestrel/pkg/testutil"
 )
 
 // ActionContext encapsulates the runtime parameters provided to an Action.
@@ -66,6 +68,7 @@ func init() {
 	DefaultRegistry.Register(&EchoAction{})
 	DefaultRegistry.Register(&SBOMAction{})
 	DefaultRegistry.Register(&CacheAction{})
+	DefaultRegistry.Register(&TestSplitAction{})
 }
 
 // --- Built-in Action: actions/checkout ---
@@ -220,6 +223,61 @@ func (a *CacheAction) Execute(ctx context.Context, actCtx *ActionContext) error 
 	return nil
 }
 
+// --- Built-in Action: actions/test-split ---
+type TestSplitAction struct{}
+
+func (a *TestSplitAction) Name() string        { return "actions/test-split" }
+func (a *TestSplitAction) Description() string { return "Splits test suites across parallel matrix jobs" }
+
+func (a *TestSplitAction) Execute(ctx context.Context, actCtx *ActionContext) error {
+	rawTests := actCtx.With["tests"]
+	if rawTests == "" {
+		return fmt.Errorf("actions/test-split requires 'tests' parameter")
+	}
+
+	totalSplits := 1
+	if tStr := actCtx.With["total"]; tStr != "" {
+		if val, err := strconv.Atoi(tStr); err == nil && val > 0 {
+			totalSplits = val
+		}
+	}
+
+	splitIndex := 0
+	if iStr := actCtx.With["index"]; iStr != "" {
+		if val, err := strconv.Atoi(iStr); err == nil && val >= 0 {
+			splitIndex = val
+		}
+	}
+
+	var tests []string
+	for _, t := range strings.Split(rawTests, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			tests = append(tests, t)
+		}
+	}
+
+	splitter := testutil.NewSplitter()
+	assigned, err := splitter.GetSliceForIndex(tests, totalSplits, splitIndex, nil)
+	if err != nil {
+		return err
+	}
+
+	outEnv := actCtx.With["output-env"]
+	if outEnv == "" {
+		outEnv = "KESTREL_TEST_TARGETS"
+	}
+
+	joined := strings.Join(assigned, " ")
+	if actCtx.Env != nil {
+		actCtx.Env[outEnv] = joined
+	}
+	_ = os.Setenv(outEnv, joined)
+
+	fmt.Fprintf(actCtx.Out, "✔ Partitioned %d tests into %d shards (assigned %d tests to shard %d): %s\n",
+		len(tests), totalSplits, len(assigned), splitIndex, joined)
+	return nil
+}
 
 // ExecuteStepAction checks if a step uses an action, and if so executes it via the registry.
 func ExecuteStepAction(ctx context.Context, step *pipeline.Step, actCtx *ActionContext) (bool, error) {
