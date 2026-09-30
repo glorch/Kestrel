@@ -288,3 +288,68 @@ jobs:
 	}
 }
 
+func TestServer_OIDC_HTTPHandlers(t *testing.T) {
+	srv := NewServer(nil)
+	handler := srv.HTTPHandler()
+
+	// 1. Test .well-known/openid-configuration
+	reqDisc := httptest.NewRequest("GET", "/.well-known/openid-configuration", nil)
+	rrDisc := httptest.NewRecorder()
+	handler.ServeHTTP(rrDisc, reqDisc)
+
+	if rrDisc.Code != http.StatusOK {
+		t.Fatalf("expected 200 for oidc discovery, got %d", rrDisc.Code)
+	}
+	var disc map[string]interface{}
+	if err := json.NewDecoder(rrDisc.Body).Decode(&disc); err != nil {
+		t.Fatalf("failed to decode discovery doc: %v", err)
+	}
+	if disc["issuer"] != "https://kestrel.ci" {
+		t.Errorf("expected issuer https://kestrel.ci, got %v", disc["issuer"])
+	}
+
+	// 2. Test /api/v1/oidc/token
+	tokenReqBody, _ := json.Marshal(map[string]interface{}{
+		"run_id":     "run-1234",
+		"job_id":     "build-and-push",
+		"audience":   "https://vault.hashicorp.com",
+		"repository": "glorch/kestrel",
+		"tenant":     "infra",
+	})
+	reqToken := httptest.NewRequest("POST", "/api/v1/oidc/token", bytes.NewReader(tokenReqBody))
+	rrToken := httptest.NewRecorder()
+	handler.ServeHTTP(rrToken, reqToken)
+
+	if rrToken.Code != http.StatusOK {
+		t.Fatalf("expected 200 for oidc token, got %d", rrToken.Code)
+	}
+	var tokenResp map[string]interface{}
+	if err := json.NewDecoder(rrToken.Body).Decode(&tokenResp); err != nil {
+		t.Fatalf("failed to decode token response: %v", err)
+	}
+	rawToken, ok := tokenResp["token"].(string)
+	if !ok || rawToken == "" {
+		t.Fatalf("expected valid token in response, got %+v", tokenResp)
+	}
+
+	// 3. Test /api/v1/oidc/verify
+	verifyReqBody, _ := json.Marshal(map[string]interface{}{
+		"token":    rawToken,
+		"audience": "https://vault.hashicorp.com",
+	})
+	reqVerify := httptest.NewRequest("POST", "/api/v1/oidc/verify", bytes.NewReader(verifyReqBody))
+	rrVerify := httptest.NewRecorder()
+	handler.ServeHTTP(rrVerify, reqVerify)
+
+	if rrVerify.Code != http.StatusOK {
+		t.Fatalf("expected 200 for token verification, got %d", rrVerify.Code)
+	}
+	var verifyResp map[string]interface{}
+	if err := json.NewDecoder(rrVerify.Body).Decode(&verifyResp); err != nil {
+		t.Fatalf("failed to decode verify response: %v", err)
+	}
+	if verifyResp["valid"] != true {
+		t.Errorf("expected valid=true, got %+v", verifyResp)
+	}
+}
+

@@ -17,6 +17,7 @@ import (
 	"github.com/glorch/kestrel/pkg/metrics"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/rpc"
+	"github.com/glorch/kestrel/pkg/security"
 	"github.com/glorch/kestrel/pkg/store"
 	"github.com/glorch/kestrel/pkg/webhook"
 )
@@ -30,6 +31,7 @@ type Server struct {
 	freezeMgr      *cd.FreezeManager
 	concurrencyMgr *ConcurrencyManager
 	quotaMgr       *QuotaManager
+	oidcIssuer     *security.OIDCIssuer
 	webhookSecret  string
 	runners        map[string]*rpc.RunnerInfo
 	queue          []*rpc.TaskSpec
@@ -53,6 +55,7 @@ func NewServer(st store.Store) *Server {
 		freezeMgr:      cd.NewFreezeManager(),
 		concurrencyMgr: NewConcurrencyManager(),
 		quotaMgr:       NewQuotaManager(),
+		oidcIssuer:     security.NewOIDCIssuer("", nil),
 		runners:        make(map[string]*rpc.RunnerInfo),
 		queue:          make([]*rpc.TaskSpec, 0),
 		inFlight:       make(map[string]*rpc.TaskSpec),
@@ -76,6 +79,18 @@ func (s *Server) ConcurrencyManager() *ConcurrencyManager {
 // QuotaManager returns the multi-tenant concurrency quota manager.
 func (s *Server) QuotaManager() *QuotaManager {
 	return s.quotaMgr
+}
+
+// OIDCIssuer returns the OIDC identity token issuer.
+func (s *Server) OIDCIssuer() *security.OIDCIssuer {
+	return s.oidcIssuer
+}
+
+// SetOIDCIssuer configures a custom OIDC issuer.
+func (s *Server) SetOIDCIssuer(oi *security.OIDCIssuer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.oidcIssuer = oi
 }
 
 // RegisterRunner handles runner agent registration.
@@ -606,6 +621,58 @@ func (s *Server) HTTPHandler() http.Handler {
 			return
 		}
 		writeJSONResponse(w, s.quotaMgr.ListQuotas())
+	})
+
+	// OpenID Connect (OIDC) Well-Known Discovery Endpoint
+	mainMux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResponse(w, s.oidcIssuer.DiscoveryConfiguration())
+	})
+
+	// REST API: Issue OIDC JWT token for keyless cloud authentication
+	mainMux.HandleFunc("/api/v1/oidc/token", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req security.OIDCTokenRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		token, err := s.oidcIssuer.IssueToken(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSONResponse(w, map[string]interface{}{
+			"token":  token,
+			"issuer": s.oidcIssuer.IssuerURL(),
+		})
+	})
+
+	// REST API: Verify OIDC JWT token
+	mainMux.HandleFunc("/api/v1/oidc/verify", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Token    string `json:"token"`
+			Audience string `json:"audience"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		claims, err := s.oidcIssuer.VerifyToken(req.Token, req.Audience)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("token verification failed: %v", err), http.StatusUnauthorized)
+			return
+		}
+		writeJSONResponse(w, map[string]interface{}{
+			"valid":  true,
+			"claims": claims,
+		})
 	})
 
 	// Mount embedded Web UI console
