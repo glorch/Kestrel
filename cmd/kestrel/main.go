@@ -19,6 +19,7 @@ import (
 	"github.com/glorch/kestrel/pkg/dag"
 	"github.com/glorch/kestrel/pkg/engine"
 	"github.com/glorch/kestrel/pkg/logger"
+	"github.com/glorch/kestrel/pkg/metrics"
 	"github.com/glorch/kestrel/pkg/notify"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/runner"
@@ -68,6 +69,10 @@ var (
 	notifyTitle       string
 	notifyContent     string
 	notifyType        string
+
+	// Metrics flags
+	metricsServerURL string
+	metricsDays      int
 )
 
 func findConfigFile(specified string) (string, error) {
@@ -589,6 +594,43 @@ func main() {
 
 	notifyCmd.AddCommand(notifySendCmd)
 
+	// --- METRICS COMMAND ---
+	metricsCmd := &cobra.Command{
+		Use:   "metrics",
+		Short: "Engineering productivity and delivery metrics (DORA)",
+	}
+
+	metricsDoraCmd := &cobra.Command{
+		Use:   "dora",
+		Short: "Display DORA DevOps delivery performance metrics",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resp, err := http.Get(fmt.Sprintf("%s/api/v1/metrics/dora?days=%d", metricsServerURL, metricsDays))
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			var report metrics.DORAReport
+			if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
+				return err
+			}
+
+			fmt.Println(color.CyanString("\n📊 DORA DevOps Engineering Metrics (%d-Day Rolling Window)", report.WindowDays))
+			fmt.Println(strings.Repeat("-", 60))
+			fmt.Printf("  • Total Pipelines:       %d (%d passed, %d failed)\n", report.TotalRuns, report.SuccessfulRuns, report.FailedRuns)
+			fmt.Printf("  • Deployment Frequency:  %.2f deploys/day [%s]\n", report.DeploymentFrequency, color.GreenString(string(report.DeploymentFreqTier)))
+			fmt.Printf("  • Lead Time for Changes: %s [%s]\n", report.LeadTimeMedian.Round(time.Second), color.GreenString(string(report.LeadTimeTier)))
+			fmt.Printf("  • Change Failure Rate:   %.1f%% [%s]\n", report.ChangeFailureRate*100, color.GreenString(string(report.ChangeFailureTier)))
+			fmt.Printf("  • Mean Time to Restore:  %s [%s]\n", report.MeanTimeToRestore.Round(time.Second), color.GreenString(string(report.MTTRTier)))
+			fmt.Println(strings.Repeat("-", 60))
+			fmt.Printf("  🌟 Overall DORA Tier:    %s\n\n", color.HiYellowString(string(report.OverallTier)))
+			return nil
+		},
+	}
+	metricsDoraCmd.Flags().StringVarP(&metricsServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+	metricsDoraCmd.Flags().IntVarP(&metricsDays, "days", "d", 30, "Rolling analysis window in days")
+	metricsCmd.AddCommand(metricsDoraCmd)
+
 	// --- VERSION COMMAND ---
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -598,7 +640,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, serverCmd, runnerCmd, sbomCmd, approvalsCmd, runsCmd, freezeCmd, notifyCmd, versionCmd)
+	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, serverCmd, runnerCmd, sbomCmd, approvalsCmd, runsCmd, freezeCmd, notifyCmd, metricsCmd, versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

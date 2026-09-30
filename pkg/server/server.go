@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/glorch/kestrel/pkg/cd"
 	"github.com/glorch/kestrel/pkg/dag"
+	"github.com/glorch/kestrel/pkg/metrics"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/rpc"
 	"github.com/glorch/kestrel/pkg/store"
@@ -491,6 +493,23 @@ func (s *Server) HTTPHandler() http.Handler {
 
 		rules := s.freezeMgr.ListRules()
 		writeJSONResponse(w, rules)
+	})
+
+	// REST API: Get DORA metrics report
+	mainMux.HandleFunc("/api/v1/metrics/dora", func(w http.ResponseWriter, r *http.Request) {
+		days := 30
+		if dStr := r.URL.Query().Get("days"); dStr != "" {
+			if d, err := strconv.Atoi(dStr); err == nil && d > 0 {
+				days = d
+			}
+		}
+		analyzer := metrics.NewDORAAnalyzer(s.store)
+		report, err := analyzer.ComputeMetrics(r.Context(), days)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSONResponse(w, report)
 	})
 
 	return mainMux
