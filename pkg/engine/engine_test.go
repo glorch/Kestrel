@@ -129,3 +129,42 @@ func TestEngineConditionalExecution(t *testing.T) {
 		t.Errorf("expected only_on_failure job with failure() to PASS, got: %s", eng.statuses["only_on_failure"])
 	}
 }
+
+func TestEngineStoresRunAndJobs(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Name:    "store-verify-pipeline",
+		Version: "1.0",
+		Jobs: map[string]*pipeline.Job{
+			"simple": {
+				Name:     "simple",
+				RunsOn:   "host",
+				Commands: []string{"echo hello store"},
+			},
+		},
+	}
+
+	eng := New(p, Options{
+		WorkDir: os.TempDir(),
+	}, logger.New(nil))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := eng.Run(ctx); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	runID := eng.RunID()
+	if runID == "" {
+		t.Fatal("expected non-empty run ID")
+	}
+
+	runRec, err := eng.Store().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("failed to get run from store: %v", err)
+	}
+
+	if runRec.Status != "PASSED" || runRec.PipelineName != "store-verify-pipeline" {
+		t.Errorf("unexpected run record: %+v", runRec)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/glorch/kestrel/pkg/executor"
 	"github.com/glorch/kestrel/pkg/logger"
 	"github.com/glorch/kestrel/pkg/pipeline"
+	"github.com/glorch/kestrel/pkg/store"
 )
 
 // JobStatus tracks lifecycle state of each job.
@@ -32,6 +33,8 @@ type Options struct {
 	ForceExecutor string // "host" or "docker"
 	DryRun        bool
 	TargetJob     string
+	RunID         string
+	Store         store.Store
 }
 
 // Engine coordinates the execution of a pipeline.
@@ -40,6 +43,8 @@ type Engine struct {
 	opts         Options
 	logger       *logger.Logger
 	artifactMgr  *artifact.Store
+	store        store.Store
+	runID        string
 	hostExecutor executor.Executor
 	dockExecutor executor.Executor
 
@@ -56,22 +61,53 @@ func New(p *pipeline.Pipeline, opts Options, log *logger.Logger) *Engine {
 	if opts.WorkDir == "" {
 		opts.WorkDir, _ = os.Getwd()
 	}
+	st := opts.Store
+	if st == nil {
+		st = store.NewMemoryStore()
+	}
 
 	return &Engine{
 		pipeline:    p,
 		opts:        opts,
 		logger:      log,
 		artifactMgr: artifact.NewStore(""),
+		store:       st,
 		statuses:    make(map[string]JobStatus),
 		durations:   make(map[string]time.Duration),
 	}
+}
+
+// RunID returns the current run ID.
+func (e *Engine) RunID() string {
+	return e.runID
+}
+
+// Store returns the engine's store instance.
+func (e *Engine) Store() store.Store {
+	return e.store
 }
 
 // Run executes the complete pipeline according to DAG topology.
 func (e *Engine) Run(ctx context.Context) error {
 	totalStart := time.Now()
 
-	e.logger.Info("Starting pipeline: %s (version %s)", e.pipeline.Name, e.pipeline.Version)
+	runID := e.opts.RunID
+	if runID == "" {
+		runID = fmt.Sprintf("run-%d", time.Now().UnixNano()/1e6)
+	}
+	e.runID = runID
+
+	runRec := &store.PipelineRun{
+		ID:           runID,
+		PipelineName: e.pipeline.Name,
+		Status:       string(StatusRunning),
+		StartedAt:    totalStart,
+		Trigger:      "cli",
+		Env:          e.pipeline.Env,
+	}
+	_ = e.store.CreateRun(ctx, runRec)
+
+	e.logger.Info("Starting pipeline: %s (run: %s, version %s)", e.pipeline.Name, runID, e.pipeline.Version)
 
 	// 1. Build DAG
 	graph, err := dag.BuildGraph(e.pipeline.Jobs)
@@ -124,11 +160,23 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	// Determine if overall pipeline succeeded
 	e.statusMu.RLock()
-	defer e.statusMu.RUnlock()
+	overallStatus := StatusPassed
 	for _, status := range e.statuses {
 		if status == StatusFailed {
-			return fmt.Errorf("pipeline completed with errors")
+			overallStatus = StatusFailed
+			break
 		}
+	}
+	e.statusMu.RUnlock()
+
+	finishTime := time.Now()
+	runRec.FinishedAt = &finishTime
+	runRec.DurationMs = totalDuration.Milliseconds()
+	runRec.Status = string(overallStatus)
+	_ = e.store.UpdateRun(ctx, runRec)
+
+	if overallStatus == StatusFailed {
+		return fmt.Errorf("pipeline completed with errors")
 	}
 
 	return nil
