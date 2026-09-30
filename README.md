@@ -32,7 +32,9 @@ It functions both as an effortless local pipeline executor (run pipelines locall
 - **🔲 Matrix Build Expansion**: Multi-dimensional matrix build matrix (`matrix: { os: [linux, win], go: [1.22, 1.23] }`) with automatic downstream dependency rewiring and variable substitution.
 - **🔀 Conditional Execution (`if: ...`)**: Support for `always()`, `success()`, `failure()`, and environment expressions (`${{ env.BRANCH == 'main' }}`).
 - **🔄 Fault-Tolerant Retries**: Configurable job and step-level retry policies (`retries: 2`, `retry-interval: "1s"`) to eliminate flaky network or transient build errors.
-- **🧩 Declarative Actions Ecosystem**: Reusable step plugins (`uses: actions/setup-go`, `actions/checkout`, `actions/upload-artifact`).
+- **🚀 Distributed Build Cache (`actions/cache`)**: Archive compression and prefix restore-keys caching for Go build cache, node_modules, and Maven dependencies.
+- **🔒 Concurrency Groups & In-Flight Cancellation**: Mutual exclusion locking (`concurrency: { group: "prod-deploy", cancel-in-progress: true }`) preventing race conditions in deployment pipelines.
+- **🧩 Declarative Actions Ecosystem**: Reusable step plugins (`uses: actions/setup-go`, `actions/checkout`, `actions/cache`, `actions/upload-artifact`).
 - **🐳 Dual Runtime Drivers**:
   - **Docker Engine**: Isolated, reproducible container execution via native Docker SDK with automatic bind-mount workspace.
   - **Host / Shell**: Native execution across Linux, macOS, and Windows PowerShell for maximum raw speed.
@@ -44,6 +46,8 @@ It functions both as an effortless local pipeline executor (run pipelines locall
   - **Manual Approval Gates**: Protects production environments by pausing pipelines at approval gates (`kestrel approvals list / approve`).
   - **Change Freeze Windows**: Policy calendar blocking risky releases during holidays, weekends, or promotions with token bypass (`kestrel freeze list / add`).
   - **Progressive Canary Rollout**: Multi-stage traffic shifting with automated metric evaluation (error rate, p99 latency) and instant auto-rollback on regression.
+- **📊 DORA Engineering Metrics**: Automated calculation of the 4 core DevOps delivery metrics (Deployment Frequency, Lead Time, Change Failure Rate, MTTR) with rating tiers (`kestrel metrics dora`).
+- **💻 Embedded Modern Web UI Console**: Zero-dependency dark-mode web dashboard embedded directly in the binary (`http://localhost:8080/dashboard`) with real-time logs, approval gates, and DORA charts.
 - **📣 ChatOps Multi-Channel Notification Hub**:
   - Unified alert dispatcher supporting Feishu/Lark, WeChat Work (WeCom), DingTalk, and Slack with HMAC signature verification (`kestrel notify send`).
 - **🌐 Distributed Server ⇋ Runner Fleet**:
@@ -56,6 +60,7 @@ It functions both as an effortless local pipeline executor (run pipelines locall
   - `kestrel graph`: Print ASCII execution flowcharts or export GitHub-compatible Mermaid diagrams.
   - `kestrel freeze`: Manage deployment freeze windows and policies.
   - `kestrel notify`: Dispatch ChatOps notifications directly from scripts or pipelines.
+  - `kestrel metrics`: Inspect DORA engineering productivity and delivery performance.
 
 ---
 
@@ -195,7 +200,17 @@ kestrel sbom --out sbom.json
 
 # View past execution runs
 kestrel runs list
+
+# Inspect DORA DevOps engineering delivery performance
+kestrel metrics dora --days 30
 ```
+
+#### Modern Web UI Console
+Once the server is started with `kestrel server start --port 8080`, simply navigate to:
+```text
+http://localhost:8080/dashboard
+```
+In your browser to interactively view the pipeline execution topology, real-time log terminal, approval gate cards, active change freeze windows, and DORA KPI scorecards!
 
 ---
 
@@ -204,21 +219,23 @@ kestrel runs list
 ```text
 Kestrel/
 ├── cmd/
-│   └── kestrel/             # Unified CLI (run, server, runner, approvals, freeze, notify, sbom)
+│   └── kestrel/             # Unified CLI (run, server, runner, approvals, freeze, notify, metrics, sbom)
 ├── pkg/
 │   ├── artifact/            # Artifact archiving and persistence
+│   ├── cache/               # Distributed build and dependency cache manager (actions/cache)
 │   ├── cd/                  # CD approval gates, canary analyzer, and change freeze calendar
 │   ├── dag/                 # Directed Acyclic Graph resolver & visualizers
 │   ├── engine/              # Pipeline lifecycle orchestrator with retry scheduling
 │   ├── executor/            # Execution drivers (Docker & Host)
 │   ├── logger/              # Thread-safe terminal stream logger with secrets masking
+│   ├── metrics/             # DORA DevOps engineering performance metrics calculator
 │   ├── notify/              # Multi-channel ChatOps notification hub (Feishu, DingTalk, WeCom, Slack)
-│   ├── pipeline/            # YAML parser, matrix expansion, and condition evaluator
-│   ├── plugin/              # Declarative step actions & plugin registry (setup-go, checkout, etc.)
+│   ├── pipeline/            # YAML parser, matrix expansion, condition evaluator, concurrency
+│   ├── plugin/              # Declarative step actions & plugin registry (setup-go, checkout, cache)
 │   ├── rpc/                 # Server ⇋ Runner distributed RPC protocol
 │   ├── runner/              # Distributed runner daemon with streaming log upload
 │   ├── security/            # Secrets masking, CycloneDX SBOM, and vulnerability gates
-│   ├── server/              # Central control plane, queue scheduler, and REST API
+│   ├── server/              # Central control plane, queue scheduler, REST API & embedded Web UI
 │   ├── store/               # In-memory, persistent run store and zero-OOM file log store
 │   ├── version/             # Build and release metadata
 │   └── webhook/             # Git Webhook signature verification and path filtering
