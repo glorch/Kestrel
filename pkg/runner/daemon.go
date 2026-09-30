@@ -208,16 +208,74 @@ func (d *Daemon) executeTask(ctx context.Context, task *rpc.TaskSpec) {
 	var taskErr error
 	status := "PASSED"
 
-	for _, step := range task.Steps {
-		res, err := exec.ExecuteStep(ctx, jobModel, step, task.Env, task.WorkDir, logPipeWriter)
-		if err != nil || (res != nil && res.ExitCode != 0) {
-			status = "FAILED"
-			if res != nil {
-				exitCode = res.ExitCode
-			} else {
-				exitCode = 1
+	maxJobAttempts := 1 + task.Retries
+	if maxJobAttempts < 1 {
+		maxJobAttempts = 1
+	}
+
+	retryInterval := 500 * time.Millisecond
+	if task.RetryInterval != "" {
+		if d, err := time.ParseDuration(task.RetryInterval); err == nil {
+			retryInterval = d
+		}
+	}
+
+	for jobAttempt := 1; jobAttempt <= maxJobAttempts; jobAttempt++ {
+		if jobAttempt > 1 {
+			select {
+			case <-ctx.Done():
+				taskErr = ctx.Err()
+				break
+			case <-time.After(retryInterval):
 			}
-			taskErr = err
+		}
+
+		taskErr = nil
+		status = "PASSED"
+		exitCode = 0
+
+		for _, step := range task.Steps {
+			maxStepAttempts := 1 + step.Retries
+			if maxStepAttempts < 1 {
+				maxStepAttempts = 1
+			}
+
+			var stepErr error
+			for stepAttempt := 1; stepAttempt <= maxStepAttempts; stepAttempt++ {
+				if stepAttempt > 1 {
+					select {
+					case <-ctx.Done():
+						stepErr = ctx.Err()
+						break
+					case <-time.After(step.ParsedRetryInterval()):
+					}
+				}
+
+				res, err := exec.ExecuteStep(ctx, jobModel, step, task.Env, task.WorkDir, logPipeWriter)
+				if err != nil || (res != nil && res.ExitCode != 0) {
+					if res != nil {
+						exitCode = res.ExitCode
+					} else {
+						exitCode = 1
+					}
+					stepErr = err
+					if stepErr == nil {
+						stepErr = fmt.Errorf("step exited with code %d", exitCode)
+					}
+				} else {
+					stepErr = nil
+					break
+				}
+			}
+
+			if stepErr != nil {
+				taskErr = stepErr
+				status = "FAILED"
+				break
+			}
+		}
+
+		if taskErr == nil {
 			break
 		}
 	}

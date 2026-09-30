@@ -227,8 +227,10 @@ func (s *Server) enqueueJob(runID, jobID string, job *pipeline.Job) {
 		Image:      job.Image,
 		Env:        job.Env,
 		WorkDir:    job.WorkDir,
-		Steps:      job.NormalizedSteps(),
-		TimeoutSec: int(job.ParsedTimeout().Seconds()),
+		Steps:         job.NormalizedSteps(),
+		TimeoutSec:    int(job.ParsedTimeout().Seconds()),
+		Retries:       job.Retries,
+		RetryInterval: job.RetryInterval,
 	}
 
 	// Check if this job requires manual approval

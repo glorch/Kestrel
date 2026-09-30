@@ -2,7 +2,10 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,3 +171,85 @@ func TestEngineStoresRunAndJobs(t *testing.T) {
 		t.Errorf("unexpected run record: %+v", runRec)
 	}
 }
+
+func TestEngineStepRetrySuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "retry_step.marker")
+	// Normalize backslashes for PowerShell command
+	cleanMarker := strings.ReplaceAll(markerFile, "\\", "/")
+
+	// First attempt creates marker and exits 1; second attempt sees marker and exits 0.
+	cmd := fmt.Sprintf("if (Test-Path '%s') { exit 0 } else { New-Item -Path '%s' -ItemType File; exit 1 }", cleanMarker, cleanMarker)
+
+	p := &pipeline.Pipeline{
+		Name:    "retry-step-pipeline",
+		Version: "1.0",
+		Jobs: map[string]*pipeline.Job{
+			"flaky-step-job": {
+				Name:   "flaky-step-job",
+				RunsOn: "host",
+				Steps: []*pipeline.Step{
+					{
+						Name:          "flaky-step",
+						Run:           cmd,
+						Retries:       2,
+						RetryInterval: "50ms",
+					},
+				},
+			},
+		},
+	}
+
+	eng := New(p, Options{
+		WorkDir: tmpDir,
+	}, logger.New(nil))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := eng.Run(ctx); err != nil {
+		t.Fatalf("expected step retry to succeed, got error: %v", err)
+	}
+
+	if eng.statuses["flaky-step-job"] != StatusPassed {
+		t.Errorf("expected job status PASSED, got: %s", eng.statuses["flaky-step-job"])
+	}
+}
+
+func TestEngineJobRetrySuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "retry_job.marker")
+	cleanMarker := strings.ReplaceAll(markerFile, "\\", "/")
+
+	cmd := fmt.Sprintf("if (Test-Path '%s') { exit 0 } else { New-Item -Path '%s' -ItemType File; exit 1 }", cleanMarker, cleanMarker)
+
+	p := &pipeline.Pipeline{
+		Name:    "retry-job-pipeline",
+		Version: "1.0",
+		Jobs: map[string]*pipeline.Job{
+			"flaky-job": {
+				Name:          "flaky-job",
+				RunsOn:        "host",
+				Retries:       2,
+				RetryInterval: "50ms",
+				Commands:      []string{cmd},
+			},
+		},
+	}
+
+	eng := New(p, Options{
+		WorkDir: tmpDir,
+	}, logger.New(nil))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := eng.Run(ctx); err != nil {
+		t.Fatalf("expected job retry to succeed, got error: %v", err)
+	}
+
+	if eng.statuses["flaky-job"] != StatusPassed {
+		t.Errorf("expected job status PASSED, got: %s", eng.statuses["flaky-job"])
+	}
+}
+

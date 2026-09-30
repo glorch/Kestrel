@@ -263,19 +263,67 @@ func (e *Engine) executeJob(ctx context.Context, jobID string) {
 	steps := job.NormalizedSteps()
 	logWriter := e.logger.JobLineWriter(jobID)
 
-	var jobErr error
-	for _, step := range steps {
-		e.logger.StepStart(jobID, step.Name)
+	maxJobAttempts := 1 + job.Retries
+	if maxJobAttempts < 1 {
+		maxJobAttempts = 1
+	}
 
-		res, err := exec.ExecuteStep(jobCtx, job, step, combinedEnv, e.opts.WorkDir, logWriter)
-		if err != nil || (res != nil && res.ExitCode != 0) {
-			code := 1
-			if res != nil {
-				code = res.ExitCode
+	var jobErr error
+	for jobAttempt := 1; jobAttempt <= maxJobAttempts; jobAttempt++ {
+		if jobAttempt > 1 {
+			e.logger.Info("[%s] Retrying failed job (attempt %d/%d) in %s...", jobID, jobAttempt, maxJobAttempts, job.ParsedRetryInterval())
+			select {
+			case <-jobCtx.Done():
+				jobErr = jobCtx.Err()
+				break
+			case <-time.After(job.ParsedRetryInterval()):
 			}
-			jobErr = fmt.Errorf("step '%s' failed with exit code %d", step.Name, code)
-			e.logger.JobFailed(jobID, code, jobErr)
-			break
+		}
+
+		jobErr = nil
+		for _, step := range steps {
+			maxStepAttempts := 1 + step.Retries
+			if maxStepAttempts < 1 {
+				maxStepAttempts = 1
+			}
+
+			var stepErr error
+			for stepAttempt := 1; stepAttempt <= maxStepAttempts; stepAttempt++ {
+				if stepAttempt > 1 {
+					e.logger.Info("[%s] Retrying step '%s' (attempt %d/%d) in %s...", jobID, step.Name, stepAttempt, maxStepAttempts, step.ParsedRetryInterval())
+					select {
+					case <-jobCtx.Done():
+						stepErr = jobCtx.Err()
+						break
+					case <-time.After(step.ParsedRetryInterval()):
+					}
+				}
+
+				e.logger.StepStart(jobID, step.Name)
+				res, err := exec.ExecuteStep(jobCtx, job, step, combinedEnv, e.opts.WorkDir, logWriter)
+				if err != nil || (res != nil && res.ExitCode != 0) {
+					code := 1
+					if res != nil {
+						code = res.ExitCode
+					}
+					stepErr = fmt.Errorf("step '%s' failed with exit code %d", step.Name, code)
+					if stepAttempt >= maxStepAttempts {
+						e.logger.JobFailed(jobID, code, stepErr)
+					}
+				} else {
+					stepErr = nil
+					break // Step succeeded
+				}
+			}
+
+			if stepErr != nil {
+				jobErr = stepErr
+				break // Stop executing subsequent steps on this attempt
+			}
+		}
+
+		if jobErr == nil {
+			break // Job passed successfully
 		}
 	}
 

@@ -55,6 +55,8 @@ type TaskSpec struct {
 	Steps         []*pipeline.Step  `json:"steps,omitempty"`
 	ArtifactPaths []string          `json:"artifact_paths,omitempty"`
 	TimeoutSec    int               `json:"timeout_sec"`
+	Retries       int               `json:"retries,omitempty"`
+	RetryInterval string            `json:"retry_interval,omitempty"`
 }
 
 // PollTaskRequest asks server if any matching task is available for execution.
