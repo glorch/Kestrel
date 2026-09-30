@@ -38,6 +38,8 @@ type Step struct {
 	Run      string            `yaml:"run,omitempty" json:"run,omitempty"`
 	Commands []string          `yaml:"commands,omitempty" json:"commands,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	Uses     string            `yaml:"uses,omitempty" json:"uses,omitempty"` // Action/plugin to execute, e.g. "actions/setup-go"
+	With     map[string]string `yaml:"with,omitempty" json:"with,omitempty"` // Action parameters/inputs
 }
 
 // ArtifactConfig defines files or directories to preserve after job execution.

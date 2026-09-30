@@ -62,10 +62,10 @@ func Validate(p *Pipeline) error {
 			return fmt.Errorf("job '%s' must declare either 'commands' or 'steps'", id)
 		}
 
-		// Ensure steps have run commands
+		// Ensure steps have run commands or uses action
 		for sIdx, s := range job.Steps {
-			if s.Run == "" && len(s.Commands) == 0 {
-				return fmt.Errorf("job '%s' step #%d has no 'run' or 'commands'", id, sIdx+1)
+			if s.Run == "" && len(s.Commands) == 0 && s.Uses == "" {
+				return fmt.Errorf("job '%s' step #%d has no 'run', 'commands', or 'uses'", id, sIdx+1)
 			}
 		}
 	}

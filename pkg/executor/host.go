@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/glorch/kestrel/pkg/pipeline"
+	"github.com/glorch/kestrel/pkg/plugin"
 )
 
 // HostExecutor runs job steps directly on the host machine.
@@ -27,6 +28,21 @@ func (h *HostExecutor) Name() string {
 
 func (h *HostExecutor) ExecuteStep(ctx context.Context, job *pipeline.Job, step *pipeline.Step, env map[string]string, workDir string, out io.Writer) (*Result, error) {
 	start := time.Now()
+
+	// If step uses an Action, execute it via the action plugin registry
+	if step.Uses != "" {
+		actCtx := &plugin.ActionContext{
+			Workspace: workDir,
+			Env:       env,
+			Out:       out,
+		}
+		if executed, err := plugin.ExecuteStepAction(ctx, step, actCtx); executed {
+			if err != nil {
+				return &Result{ExitCode: 1, Duration: time.Since(start), Error: err}, err
+			}
+			return &Result{ExitCode: 0, Duration: time.Since(start)}, nil
+		}
+	}
 
 	// Consolidate commands to execute
 	var cmdString string
