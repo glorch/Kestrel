@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,17 +137,41 @@ func (e *Engine) Run(ctx context.Context) error {
 func (e *Engine) executeJob(ctx context.Context, jobID string) {
 	job := e.pipeline.Jobs[jobID]
 
-	// Check if upstream dependencies succeeded
+	// Build condition context with upstream statuses and environment
+	upstreamStatuses := make(map[string]string)
+	e.statusMu.RLock()
 	for _, dep := range job.Needs {
-		e.statusMu.RLock()
-		depStatus := e.statuses[dep]
-		e.statusMu.RUnlock()
+		upstreamStatuses[dep] = string(e.statuses[dep])
+	}
+	e.statusMu.RUnlock()
 
-		if depStatus != StatusPassed {
-			e.logger.JobSkipped(jobID, fmt.Sprintf("dependency '%s' did not pass (%s)", dep, depStatus))
-			e.setJobStatus(jobID, StatusSkipped, 0)
-			return
+	combinedEnv := make(map[string]string)
+	for k, v := range e.pipeline.Env {
+		combinedEnv[k] = v
+	}
+	for k, v := range job.Env {
+		combinedEnv[k] = v
+	}
+
+	condCtx := pipeline.ConditionContext{
+		UpstreamStatuses: upstreamStatuses,
+		Env:              combinedEnv,
+	}
+
+	shouldRun, err := pipeline.EvaluateCondition(job.If, condCtx)
+	if err != nil {
+		e.logger.JobFailed(jobID, 1, fmt.Errorf("condition evaluation error: %w", err))
+		e.setJobStatus(jobID, StatusFailed, 0)
+		return
+	}
+	if !shouldRun {
+		reason := "condition evaluated to false"
+		if job.If == "" || job.If == "success()" {
+			reason = "upstream dependency did not pass"
 		}
+		e.logger.JobSkipped(jobID, reason)
+		e.setJobStatus(jobID, StatusSkipped, 0)
+		return
 	}
 
 	// Set timeout context
@@ -175,16 +200,16 @@ func (e *Engine) executeJob(ctx context.Context, jobID string) {
 	e.setJobStatus(jobID, StatusRunning, 0)
 	e.logger.JobStart(jobID, job.Image, execType)
 
-	// Combine global and job-level environment variables
-	combinedEnv := make(map[string]string)
-	for k, v := range e.pipeline.Env {
-		combinedEnv[k] = v
-	}
-	for k, v := range job.Env {
-		combinedEnv[k] = v
-	}
 	combinedEnv["KESTREL_JOB"] = jobID
 	combinedEnv["KESTREL_PIPELINE"] = e.pipeline.Name
+
+	// Register sensitive env values with logger masker
+	for k, v := range combinedEnv {
+		upperK := strings.ToUpper(k)
+		if strings.Contains(upperK, "SECRET") || strings.Contains(upperK, "TOKEN") || strings.Contains(upperK, "PASSWORD") || strings.Contains(upperK, "KEY") {
+			e.logger.RegisterSecrets(v)
+		}
+	}
 
 	jobStart := time.Now()
 	steps := job.NormalizedSteps()

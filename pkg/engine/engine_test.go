@@ -84,3 +84,48 @@ func TestEngineJobFailureAndSkip(t *testing.T) {
 		t.Errorf("expected dependent job status SKIPPED, got: %s", eng.statuses["dependent"])
 	}
 }
+
+func TestEngineConditionalExecution(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Name:    "conditional-pipeline",
+		Version: "1.0",
+		Jobs: map[string]*pipeline.Job{
+			"failing": {
+				Name:     "failing",
+				RunsOn:   "host",
+				Commands: []string{"exit 1"},
+			},
+			"cleanup": {
+				Name:     "cleanup",
+				RunsOn:   "host",
+				Needs:    []string{"failing"},
+				If:       "always()", // Runs even when failing job fails
+				Commands: []string{"echo cleanup"},
+			},
+			"only_on_failure": {
+				Name:     "only_on_failure",
+				RunsOn:   "host",
+				Needs:    []string{"failing"},
+				If:       "failure()", // Runs because failing job failed
+				Commands: []string{"echo alert"},
+			},
+		},
+	}
+
+	eng := New(p, Options{
+		WorkDir: os.TempDir(),
+	}, logger.New(nil))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_ = eng.Run(ctx)
+
+	if eng.statuses["cleanup"] != StatusPassed {
+		t.Errorf("expected cleanup job with always() to PASS, got: %s", eng.statuses["cleanup"])
+	}
+
+	if eng.statuses["only_on_failure"] != StatusPassed {
+		t.Errorf("expected only_on_failure job with failure() to PASS, got: %s", eng.statuses["only_on_failure"])
+	}
+}
