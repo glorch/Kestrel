@@ -24,6 +24,11 @@ func Parse(r io.Reader) (*Pipeline, error) {
 	// Apply defaults
 	applyDefaults(&p)
 
+	// Expand matrix jobs if declared
+	if err := ExpandMatrix(&p); err != nil {
+		return nil, fmt.Errorf("matrix expansion error: %w", err)
+	}
+
 	return &p, nil
 }
 

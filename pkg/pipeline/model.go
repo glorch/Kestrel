@@ -25,7 +25,9 @@ type Job struct {
 	ContinueOnError bool              `yaml:"continue-on-error,omitempty" json:"continue_on_error,omitempty"`
 	Commands        []string          `yaml:"commands,omitempty" json:"commands,omitempty"` // Shorthand for simple sequential commands
 	Steps           []*Step           `yaml:"steps,omitempty" json:"steps,omitempty"`       // Detailed step specifications
-	Artifacts       *ArtifactConfig   `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
+	Artifacts       *ArtifactConfig     `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
+	Matrix          map[string][]string `yaml:"matrix,omitempty" json:"matrix,omitempty"` // Multi-dimensional matrix options
+	If              string              `yaml:"if,omitempty" json:"if,omitempty"`         // Conditional execution expression
 }
 
 // Step represents an individual execution unit within a job.
