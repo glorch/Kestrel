@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/glorch/kestrel/pkg/cd"
 	"github.com/glorch/kestrel/pkg/dag"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/rpc"
@@ -19,6 +20,7 @@ import (
 type Server struct {
 	mu           sync.RWMutex
 	store        store.Store
+	gateMgr      *cd.GateManager
 	runners      map[string]*rpc.RunnerInfo
 	queue        []*rpc.TaskSpec
 	inFlight     map[string]*rpc.TaskSpec
@@ -36,6 +38,7 @@ func NewServer(st store.Store) *Server {
 	}
 	return &Server{
 		store:        st,
+		gateMgr:      cd.NewGateManager(),
 		runners:      make(map[string]*rpc.RunnerInfo),
 		queue:        make([]*rpc.TaskSpec, 0),
 		inFlight:     make(map[string]*rpc.TaskSpec),
@@ -227,6 +230,28 @@ func (s *Server) enqueueJob(runID, jobID string, job *pipeline.Job) {
 		Steps:      job.NormalizedSteps(),
 		TimeoutSec: int(job.ParsedTimeout().Seconds()),
 	}
+
+	// Check if this job requires manual approval
+	if job.Approval || job.Environment == "production" {
+		gate := s.gateMgr.RequestApproval(runID, jobID, job.Environment, nil, 24*time.Hour)
+		go func() {
+			status, err := s.gateMgr.WaitForDecision(context.Background(), gate.ID)
+			if err != nil || status != cd.ApprovalApproved {
+				s.mu.Lock()
+				if statuses, exists := s.runJobStatus[runID]; exists {
+					statuses[jobID] = "FAILED"
+					s.checkAndProgressPipeline(context.Background(), runID)
+				}
+				s.mu.Unlock()
+				return
+			}
+			s.mu.Lock()
+			s.queue = append(s.queue, task)
+			s.mu.Unlock()
+		}()
+		return
+	}
+
 	s.queue = append(s.queue, task)
 }
 
@@ -321,7 +346,40 @@ func (s *Server) HTTPHandler() http.Handler {
 		writeJSONResponse(w, map[string]string{"run_id": runID, "status": "QUEUED"})
 	})
 
+	// REST API: List pending approval gates
+	mainMux.HandleFunc("/api/v1/approvals", func(w http.ResponseWriter, r *http.Request) {
+		pending := s.gateMgr.ListPending()
+		writeJSONResponse(w, pending)
+	})
+
+	// REST API: Approve a gate
+	mainMux.HandleFunc("/api/v1/approvals/approve", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			GateID   string `json:"gate_id"`
+			Approver string `json:"approver"`
+			Comment  string `json:"comment"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.gateMgr.Approve(payload.GateID, payload.Approver, payload.Comment); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSONResponse(w, map[string]string{"status": "APPROVED", "gate_id": payload.GateID})
+	})
+
 	return mainMux
+}
+
+// GateManager returns the server's approval gate manager.
+func (s *Server) GateManager() *cd.GateManager {
+	return s.gateMgr
 }
 
 func writeJSONResponse(w http.ResponseWriter, data interface{}) {

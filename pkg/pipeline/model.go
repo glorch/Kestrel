@@ -28,6 +28,8 @@ type Job struct {
 	Artifacts       *ArtifactConfig     `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
 	Matrix          map[string][]string `yaml:"matrix,omitempty" json:"matrix,omitempty"` // Multi-dimensional matrix options
 	If              string              `yaml:"if,omitempty" json:"if,omitempty"`         // Conditional execution expression
+	Environment     string              `yaml:"environment,omitempty" json:"environment,omitempty"` // Target deployment environment
+	Approval        bool                `yaml:"approval,omitempty" json:"approval,omitempty"`       // Whether manual approval is required before execution
 }
 
 // Step represents an individual execution unit within a job.

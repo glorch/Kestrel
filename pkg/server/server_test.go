@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/glorch/kestrel/pkg/cd"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/rpc"
 	"github.com/glorch/kestrel/pkg/store"
@@ -140,5 +142,75 @@ jobs:
 	_ = json.NewDecoder(postResp.Body).Decode(&result)
 	if result["run_id"] == "" || result["status"] != "QUEUED" {
 		t.Errorf("unexpected trigger response: %+v", result)
+	}
+}
+
+func TestServerApprovalGate(t *testing.T) {
+	st := store.NewMemoryStore()
+	srv := NewServer(st)
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	ctx := context.Background()
+	p := &pipeline.Pipeline{
+		Name:    "prod-deploy-pipeline",
+		Version: "1.0",
+		Jobs: map[string]*pipeline.Job{
+			"deploy": {
+				Name:        "Production Deploy",
+				RunsOn:      "host",
+				Approval:    true,
+				Environment: "production",
+				Commands:    []string{"echo deployed to prod"},
+			},
+		},
+	}
+
+	_, err := srv.TriggerPipeline(ctx, p, "test")
+	if err != nil {
+		t.Fatalf("trigger failed: %v", err)
+	}
+
+	// 1. Task should NOT be in queue yet because it requires approval
+	pollResp, err := srv.PollTask(ctx, &rpc.PollTaskRequest{RunnerID: "r-1", Tags: []string{"host"}})
+	if err != nil || pollResp.HasTask {
+		t.Fatal("expected task to be blocked behind approval gate")
+	}
+
+	// 2. Query pending approvals via REST API
+	resp, err := http.Get(ts.URL + "/api/v1/approvals")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("get approvals failed: %v", err)
+	}
+	var gates []*cd.GateRequest
+	_ = json.NewDecoder(resp.Body).Decode(&gates)
+	if len(gates) != 1 {
+		t.Fatalf("expected 1 pending gate, got %d", len(gates))
+	}
+
+	gateID := gates[0].ID
+
+	// 3. Approve gate via REST API
+	approvePayload := map[string]string{
+		"gate_id":  gateID,
+		"approver": "ops-lead",
+		"comment":  "ship it",
+	}
+	payloadBytes, _ := json.Marshal(approvePayload)
+	approveResp, err := http.Post(ts.URL+"/api/v1/approvals/approve", "application/json", bytes.NewReader(payloadBytes))
+	if err != nil || approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve failed: %v", err)
+	}
+
+	// Wait briefly for goroutine to release task into queue
+	time.Sleep(50 * time.Millisecond)
+
+	// 4. Now runner polls task successfully!
+	pollResp2, err := srv.PollTask(ctx, &rpc.PollTaskRequest{RunnerID: "r-1", Tags: []string{"host"}})
+	if err != nil || !pollResp2.HasTask {
+		t.Fatal("expected task to be released to queue after approval")
+	}
+	if pollResp2.Task.JobID != "deploy" {
+		t.Errorf("expected deploy task, got: %s", pollResp2.Task.JobID)
 	}
 }
