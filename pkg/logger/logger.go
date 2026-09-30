@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/glorch/kestrel/pkg/security"
 )
 
 var (
@@ -22,8 +23,9 @@ var (
 
 // Logger provides thread-safe colored output for jobs and pipeline events.
 type Logger struct {
-	mu  sync.Mutex
-	out io.Writer
+	mu     sync.Mutex
+	out    io.Writer
+	masker *security.Masker
 }
 
 // New creates a new Logger writing to stdout by default.
@@ -31,7 +33,26 @@ func New(out io.Writer) *Logger {
 	if out == nil {
 		out = os.Stdout
 	}
-	return &Logger{out: out}
+	return &Logger{
+		out:    out,
+		masker: security.NewMasker(),
+	}
+}
+
+// RegisterSecrets registers sensitive strings that should be masked in logs.
+func (l *Logger) RegisterSecrets(secrets ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.masker != nil {
+		l.masker.Register(secrets...)
+	}
+}
+
+// SetMasker sets a custom secrets masker.
+func (l *Logger) SetMasker(m *security.Masker) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.masker = m
 }
 
 // Default returns a standard stdout logger.
@@ -161,9 +182,13 @@ func (pw *prefixWriter) Write(p []byte) (n int, err error) {
 
 	for _, b := range p {
 		if b == '\n' {
+			line := string(pw.buf)
+			if pw.l.masker != nil {
+				line = pw.l.masker.Mask(line)
+			}
 			fmt.Fprintf(pw.l.out, "         %s %s\n",
 				gray(pw.prefix),
-				string(pw.buf),
+				line,
 			)
 			pw.buf = pw.buf[:0]
 		} else if b != '\r' {
@@ -178,7 +203,11 @@ func (pw *prefixWriter) Flush() {
 	pw.l.mu.Lock()
 	defer pw.l.mu.Unlock()
 	if len(pw.buf) > 0 {
-		fmt.Fprintf(pw.l.out, "         %s %s\n", gray(pw.prefix), string(pw.buf))
+		line := string(pw.buf)
+		if pw.l.masker != nil {
+			line = pw.l.masker.Mask(line)
+		}
+		fmt.Fprintf(pw.l.out, "         %s %s\n", gray(pw.prefix), line)
 		pw.buf = pw.buf[:0]
 	}
 }
