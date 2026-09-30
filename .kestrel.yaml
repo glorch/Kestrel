@@ -13,18 +13,20 @@ jobs:
       - "go vet ./..."
 
   test:
-    name: "Unit Tests"
+    name: "Unit & E2E Tests"
     needs: [lint]
     runs-on: "host"
     commands:
-      - "go test -v ./pkg/..."
+      - "go test -v ./pkg/... ./test/..."
 
   build:
-    name: "Compile Binary"
+    name: "Compile Binary & SBOM"
     needs: [test]
     runs-on: "host"
     commands:
       - "go build -ldflags=\"-s -w\" -o bin/kestrel.exe ./cmd/kestrel"
+      - "bin/kestrel.exe sbom --out .kestrel/sbom.json"
     artifacts:
       paths:
         - "bin/kestrel.exe"
+        - ".kestrel/sbom.json"

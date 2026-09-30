@@ -21,20 +21,29 @@
 
 **Kestrel** (红隼) is a modern, fast, and un-bloated CI/CD workflow orchestrator and runner. 
 
-Designed to be both an effortless local execution engine (run pipelines locally before pushing to Git) and an extensible distributed execution plane, Kestrel combines **DAG topological concurrency**, **containerized isolation**, and **streamlined developer ergonomics**.
+It functions both as an effortless local pipeline executor (run pipelines locally before pushing to Git) and as an enterprise-grade distributed execution system (Server ⇋ Runner architecture with gRPC/HTTP protocol).
 
 ---
 
 ## ✨ Key Features
 
 - **⚡ Zero Overhead & Instant Startup**: Single static Go binary without heavy runtimes (no Java JVM, no Python virtualenvs).
-- **🕸️ DAG Topological Scheduling**: Automatic dependency resolution and parallel batching powered by Kahn's algorithm (`needs: [...]`).
+- **🕸️ DAG Topological Scheduling**: Automatic dependency resolution and parallel stage batching powered by Kahn's algorithm (`needs: [...]`).
+- **🔲 Matrix Build Expansion**: Multi-dimensional matrix build matrix (`matrix: { os: [linux, win], go: [1.22, 1.23] }`) with automatic downstream dependency rewiring and variable substitution.
+- **🔀 Conditional Execution (`if: ...`)**: Support for `always()`, `success()`, `failure()`, and environment expressions (`${{ env.BRANCH == 'main' }}`).
 - **🐳 Dual Runtime Drivers**:
   - **Docker Engine**: Isolated, reproducible container execution via native Docker SDK with automatic bind-mount workspace.
   - **Host / Shell**: Native execution across Linux, macOS, and Windows PowerShell for maximum raw speed.
-- **🎨 Real-Time Colored Logging**: Thread-safe terminal stream with timestamps, job/step prefixes, elapsed time metrics, and ANSI coloring.
-- **🛡️ Failure Cascading & Error Policies**: Immediate cancellation/skipping of downstream jobs when an upstream dependency fails (with `continue-on-error` override support).
-- **📦 Artifact Collection**: Automatically collects, archives, and stores declared output directories.
+- **🛡️ DevSecOps & Supply Chain Security**:
+  - **Secrets Log Masking**: Automatic real-time redaction of sensitive credentials, passwords, and tokens (`***`) from stdout/stderr.
+  - **CycloneDX 1.5 SBOM**: Automated Software Bill of Materials generation (`kestrel sbom`).
+  - **Security Gate Policy**: Threshold enforcement on Critical/High vulnerabilities.
+- **🚦 CD Environment Governance & Manual Approval Gates**:
+  - Protects production environments by pausing pipelines at approval gates (`kestrel approvals list / approve`).
+- **🌐 Distributed Server ⇋ Runner Fleet**:
+  - Central control plane (`kestrel server start`) with REST API, Webhooks, and task dispatching queue.
+  - Distributed runner daemon (`kestrel runner start`) with heartbeat, task polling, and real-time streaming logs.
+- **📦 Artifact Collection & Run History**: Automatic file archiving and persistent run history (`kestrel runs list`).
 - **🔍 CLI Toolchain**:
   - `kestrel run`: Execute pipelines locally or in CI environments.
   - `kestrel lint`: Static analysis for YAML syntax, missing dependencies, and dependency cycles.
@@ -45,38 +54,30 @@ Designed to be both an effortless local execution engine (run pipelines locally 
 ## 🏗️ Architecture
 
 ```mermaid
-flowchart TD
-    subgraph UI ["User / Trigger Interface"]
+flowchart TB
+    subgraph Users ["User / Git Triggers"]
         CLI["kestrel CLI (run / lint / graph)"]
         Webhook["Git Webhook (Push / PR)"]
     end
 
-    subgraph Core ["Kestrel Core Kernel"]
-        Parser["YAML Parser & Validator"]
-        DAG["DAG Topological Resolver (Kahn)"]
-        Engine["Concurrency Engine & State Machine"]
-        Logger["Stream Logger (ANSI / Prefixes)"]
+    subgraph ControlPlane ["Central Control Plane (kestrel server)"]
+        API["REST API & Webhook Ingestion"]
+        Scheduler["DAG Queue & Dispatcher"]
+        Store["Persistent Store (.kestrel/store)"]
+        GateMgr["CD Approval Gate Manager"]
     end
 
-    subgraph Drivers ["Execution Drivers"]
-        Docker["Docker SDK Driver"]
-        Host["Host Shell Driver (Linux/Mac/Win)"]
+    subgraph Workers ["Distributed Worker Fleet (kestrel runner)"]
+        Runner1["Runner Node 1 (Docker / Host)"]
+        Runner2["Runner Node 2 (Host Native)"]
     end
 
-    subgraph Output ["Storage & Artifacts"]
-        Artifacts[".kestrel/artifacts Store"]
-    end
-
-    CLI --> Parser
-    Webhook --> Parser
-    Parser --> DAG
-    DAG --> Engine
-    Engine --> Docker
-    Engine --> Host
-    Docker --> Logger
-    Host --> Logger
-    Docker --> Artifacts
-    Host --> Artifacts
+    CLI -->|Execute local| Scheduler
+    Webhook --> API
+    API --> Scheduler
+    Scheduler --> Store
+    Scheduler --> GateMgr
+    Scheduler <-->|RPC Task Poll & Log Stream| Workers
 ```
 
 ---
@@ -118,19 +119,21 @@ jobs:
 
   test:
     name: "Unit Tests"
-    runs-on: "docker"
-    image: "golang:1.23-alpine"
-    needs: [lint] # Executes only after 'lint' succeeds
+    runs-on: "host"
+    needs: [lint]
+    matrix:
+      go: ["1.22", "1.23"]
     commands:
-      - "go version"
-      - "echo 'Running unit test suite in container...'"
+      - "echo 'Testing with Go ${{ matrix.go }}'"
 
-  build:
-    name: "Compile Release"
+  deploy:
+    name: "Production Deployment"
     runs-on: "host"
     needs: [test]
+    environment: "production"
+    approval: true # Requires manual approval before execution
     commands:
-      - "echo 'Compiling binary...'"
+      - "echo 'Deployed to production!'"
     artifacts:
       paths:
         - "bin/*"
@@ -138,42 +141,47 @@ jobs:
 
 ---
 
-### 3. Run Commands
+### 3. CLI Commands Reference
 
-#### Execute the pipeline locally:
+#### Local Execution
 ```bash
+# Run pipeline locally
 kestrel run
-```
 
-#### Simulate without running steps (Dry Run):
-```bash
+# Simulate execution (dry run)
 kestrel run --dry-run
-```
 
-#### Validate syntax and check for circular dependencies:
-```bash
+# Validate configuration
 kestrel lint
-```
 
-#### Visualize the DAG dependency tree:
-```bash
-# Print ASCII stage tree
+# Visualize DAG dependency tree (ASCII or Mermaid)
 kestrel graph
-
-# Print Mermaid diagram
 kestrel graph --format=mermaid
 ```
 
----
+#### Distributed Server & Runner
+```bash
+# Start central server (Port 8080)
+kestrel server start --port 8080
 
-## 📊 CLI Command Reference
+# Start a worker runner connecting to server
+kestrel runner start --server http://localhost:8080 --tags host,docker --capacity 2
+```
 
-| Command | Description | Flags |
-| :--- | :--- | :--- |
-| `kestrel run [path]` | Execute a pipeline | `--dry-run`, `--executor <docker\|host>`, `--workdir <dir>`, `-f, --file <path>` |
-| `kestrel lint [path]` | Validate configuration and check DAG validity | `-f, --file <path>` |
-| `kestrel graph [path]` | Visualize pipeline dependency graph | `--format <ascii\|mermaid>`, `-f, --file <path>` |
-| `kestrel version` | Print engine version, commit, and build environment | |
+#### CD Approval Gates & Security
+```bash
+# List pending deployment approval gates
+kestrel approvals list
+
+# Approve a deployment gate
+kestrel approvals approve <gate-id> --approver alice --comment "LGTM"
+
+# Generate CycloneDX 1.5 SBOM
+kestrel sbom --out sbom.json
+
+# View past execution runs
+kestrel runs list
+```
 
 ---
 
@@ -182,56 +190,29 @@ kestrel graph --format=mermaid
 ```text
 Kestrel/
 ├── cmd/
-│   └── kestrel/             # Kestrel CLI entry point
+│   └── kestrel/             # Unified CLI (run, server, runner, approvals, sbom)
 ├── pkg/
 │   ├── artifact/            # Artifact archiving and persistence
+│   ├── cd/                  # CD environment governance and manual approval gates
 │   ├── dag/                 # Directed Acyclic Graph resolver & visualizers
 │   ├── engine/              # Pipeline lifecycle orchestrator
 │   ├── executor/            # Execution drivers (Docker & Host)
-│   ├── logger/              # Thread-safe terminal stream logger
-│   ├── pipeline/            # YAML parser, models, and validation
-│   └── version/             # Build and release metadata
+│   ├── logger/              # Thread-safe terminal stream logger with secrets masking
+│   ├── pipeline/            # YAML parser, matrix expansion, and condition evaluator
+│   ├── rpc/                 # Server ⇋ Runner distributed RPC protocol
+│   ├── runner/              # Distributed runner daemon
+│   ├── security/            # Secrets masking, CycloneDX SBOM, and vulnerability gates
+│   ├── server/              # Central control plane and task dispatcher
+│   ├── store/               # In-memory and persistent file run storage
+│   ├── version/             # Build and release metadata
+│   └── webhook/             # Git Webhook signature verification and path filtering
+├── test/
+│   └── e2e_integration_test.go # End-to-end distributed integration tests
 ├── examples/                # Example pipeline configurations
-│   ├── simple.yaml
-│   └── docker.yaml
-├── .github/workflows/       # GitHub Actions CI workflow
-├── .kestrel.yaml            # Self-hosting CI configuration
-├── go.mod
-├── go.sum
-└── README.md
+├── docs/                    # Architecture and enterprise specifications
+├── .github/workflows/       # GitHub Actions cross-platform CI
+└── .kestrel.yaml            # Self-hosting CI configuration
 ```
-
----
-
-## 🗺️ Roadmap
-
-- [x] **v0.1.0** (Current):
-  - [x] Single-binary CLI engine (`run`, `lint`, `graph`).
-  - [x] DAG topological sorting and stage batching (Kahn's algorithm).
-  - [x] Native Docker SDK container executor with volume mounts.
-  - [x] Native Host/Shell cross-platform executor.
-  - [x] Colorized terminal streaming logs and failure cascading.
-  - [x] Artifact storage and extraction.
-- [ ] **v0.2.0**:
-  - [ ] Matrix builds (multi-OS, multi-version testing).
-  - [ ] MinIO / AWS S3 remote cache and artifact backend.
-  - [ ] Conditional job execution (`if: always()`, `if: success()`).
-- [ ] **v0.3.0**:
-  - [ ] Kestrel Server + Agent distributed gRPC runner architecture.
-  - [ ] Git Webhook integration (GitHub, GitLab, Gitea).
-  - [ ] Web dashboard with xterm.js live log viewing.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues and Pull Requests.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ---
 
