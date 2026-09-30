@@ -512,6 +512,9 @@ func (s *Server) HTTPHandler() http.Handler {
 		writeJSONResponse(w, report)
 	})
 
+	// Mount embedded Web UI console
+	RegisterDashboardRoutes(mainMux)
+
 	return mainMux
 }
 

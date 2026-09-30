@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🦅 Kestrel CI/CD Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #090d16;
+      --bg-surface: #101726;
+      --bg-card: #151e33;
+      --border-color: #232f48;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-blue: #38bdf8;
+      --accent-green: #22c55e;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-purple: #a855f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+    .brand-icon {
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 1.1rem;
+    }
+    .nav-stats {
+      display: flex;
+      gap: 20px;
+      font-size: 0.85rem;
+    }
+    .stat-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+    main {
+      padding: 32px;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 18px;
+    }
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .kpi-title { font-size: 0.82rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .kpi-value { font-size: 1.8rem; font-weight: 700; }
+    .kpi-sub { font-size: 0.82rem; color: var(--text-muted); }
+    .section-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .section-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .section-title { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+    th { padding: 14px 24px; background: rgba(255,255,255,0.02); color: var(--text-muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+    td { padding: 14px 24px; border-bottom: 1px solid var(--border-color); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: rgba(255,255,255,0.015); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .badge-passed { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .badge-failed { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-running { background: rgba(56, 189, 248, 0.15); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-cancelled { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+    .badge-pending { background: rgba(245, 158, 11, 0.15); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .btn {
+      background: var(--accent-blue);
+      color: #04101e;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-outline { background: transparent; color: var(--text-main); border: 1px solid var(--border-color); }
+    .btn-outline:hover { background: var(--bg-card); }
+    .btn-danger { background: var(--accent-rose); color: #fff; }
+    .btn-success { background: var(--accent-green); color: #fff; }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; z-index: 100;
+    }
+    .modal-content {
+      background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; width: 90%; max-width: 800px;
+      max-height: 85vh; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+    .terminal-body {
+      background: #050811; padding: 18px 24px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #cbd5e1;
+      overflow-y: auto; flex: 1; min-height: 350px; white-space: pre-wrap; line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-icon">🦅</span>
+      <span>Kestrel CI/CD Console</span>
+    </div>
+    <div class="nav-stats">
+      <div class="stat-pill"><div class="pulse-dot"></div> <span id="runnerCount">0 Active Runners</span></div>
+      <div class="stat-pill">DORA Tier: <strong id="doraBadge" style="color:var(--accent-amber)">High</strong></div>
+      <button class="btn btn-outline" onclick="loadDashboard()">↻ Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- KPI Overview -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-title">Deployment Frequency</div>
+        <div class="kpi-value" id="kpiFreq">0.0 / day</div>
+        <div class="kpi-sub">30-day rolling releases</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Lead Time for Changes</div>
+        <div class="kpi-value" id="kpiLeadTime">0s</div>
+        <div class="kpi-sub">Median commit-to-deploy duration</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Change Failure Rate</div>
+        <div class="kpi-value" id="kpiFailureRate" style="color:var(--accent-green)">0.0%</div>
+        <div class="kpi-sub">Production regressions / rollbacks</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Mean Time to Restore (MTTR)</div>
+        <div class="kpi-value" id="kpiMttr">0s</div>
+        <div class="kpi-sub">Avg service recovery speed</div>
+      </div>
+    </div>
+
+    <!-- Active Approval Gates (if any) -->
+    <div class="section-card" id="approvalsCard" style="display:none">
+      <div class="section-header">
+        <div class="section-title">🚦 Deployment Approval Gates</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Gate ID</th>
+            <th>Run ID</th>
+            <th>Target Environment</th>
+            <th>Created At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="approvalsTable"></tbody>
+      </table>
+    </div>
+
+    <!-- Pipeline Runs History -->
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-title">📦 Pipeline Execution Runs</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Run ID</th>
+            <th>Pipeline Name</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>Trigger</th>
+            <th>Started At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="runsTable">
+          <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Loading pipeline history...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Change Freeze Policies -->
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-title">🔒 Production Change Freeze Windows</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Rule ID</th>
+            <th>Policy Name</th>
+            <th>Environments</th>
+            <th>Schedule Type</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="freezeTable">
+          <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No active change freeze rules configured.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Log Viewer Modal -->
+  <div class="modal-overlay" id="logModal" onclick="closeLogModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modalTitle">Execution Logs</h3>
+        <button class="btn btn-outline" onclick="document.getElementById('logModal').style.display='none'">✕</button>
+      </div>
+      <div class="terminal-body" id="modalLogs">Loading task logs...</div>
+    </div>
+  </div>
+
+  <script>
+    async function loadDashboard() {
+      try {
+        // 1. Fetch Runners
+        const runnersRes = await fetch('/api/v1/runners');
+        if (runnersRes.ok) {
+          const runners = await runnersRes.json() || [];
+          document.getElementById('runnerCount').textContent = runners.length + ' Active Runner(s)';
+        }
+
+        // 2. Fetch DORA Metrics
+        const doraRes = await fetch('/api/v1/metrics/dora?days=30');
+        if (doraRes.ok) {
+          const dora = await doraRes.json();
+          document.getElementById('doraBadge').textContent = dora.overall_tier;
+          document.getElementById('kpiFreq').textContent = dora.deployment_frequency_per_day.toFixed(2) + ' / day';
+          document.getElementById('kpiLeadTime').textContent = formatDuration(dora.lead_time_median);
+          document.getElementById('kpiFailureRate').textContent = (dora.change_failure_rate * 100).toFixed(1) + '%';
+          document.getElementById('kpiMttr').textContent = formatDuration(dora.mean_time_to_restore);
+        }
+
+        // 3. Fetch Approvals
+        const appRes = await fetch('/api/v1/approvals');
+        if (appRes.ok) {
+          const approvals = await appRes.json() || [];
+          const appCard = document.getElementById('approvalsCard');
+          const tbody = document.getElementById('approvalsTable');
+          if (approvals.length > 0) {
+            appCard.style.display = 'block';
+            tbody.innerHTML = approvals.map(g => `
+              <tr>
+                <td><code>${g.id}</code></td>
+                <td>${g.run_id}</td>
+                <td><span class="badge badge-pending">${g.environment}</span></td>
+                <td>${new Date(g.created_at).toLocaleString()}</td>
+                <td>
+                  <button class="btn btn-success" onclick="approveGate('${g.id}')">Approve</button>
+                </td>
+              </tr>
+            `).join('');
+          } else {
+            appCard.style.display = 'none';
+          }
+        }
+
+        // 4. Fetch Runs
+        const runsRes = await fetch('/api/v1/runs');
+        if (runsRes.ok) {
+          const runs = await runsRes.json() || [];
+          const tbody = document.getElementById('runsTable');
+          if (runs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No recorded runs found</td></tr>';
+          } else {
+            tbody.innerHTML = runs.map(r => `
+              <tr>
+                <td><code>${r.id}</code></td>
+                <td><strong>${r.pipeline_name}</strong></td>
+                <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
+                <td>${(r.duration_ms / 1000).toFixed(1)}s</td>
+                <td>${r.trigger}</td>
+                <td>${new Date(r.started_at).toLocaleString()}</td>
+                <td>
+                  <button class="btn btn-outline" onclick="viewLogs('${r.id}')">Logs</button>
+                </td>
+              </tr>
+            `).join('');
+          }
+        }
+
+        // 5. Fetch Freeze Rules
+        const freezeRes = await fetch('/api/v1/freeze/rules');
+        if (freezeRes.ok) {
+          const rules = await freezeRes.json() || [];
+          const tbody = document.getElementById('freezeTable');
+          if (rules.length > 0) {
+            tbody.innerHTML = rules.map(f => `
+              <tr>
+                <td><code>${f.id}</code></td>
+                <td><strong>${f.name}</strong></td>
+                <td>${f.environments.join(', ')}</td>
+                <td>${f.type}</td>
+                <td><span class="badge badge-failed">Active Freeze</span></td>
+              </tr>
+            `).join('');
+          } else {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No active change freeze rules configured.</td></tr>';
+          }
+        }
+
+      } catch (e) {
+        console.error("Dashboard refresh error:", e);
+      }
+    }
+
+    async function approveGate(id) {
+      if (!confirm("Confirm approval for gate " + id + "?")) return;
+      await fetch('/api/v1/approvals/approve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({gate_id: id, approver: 'console-operator', comment: 'Approved via Web Console'})
+      });
+      loadDashboard();
+    }
+
+    async function viewLogs(runID) {
+      document.getElementById('modalTitle').textContent = 'Logs for Run ' + runID;
+      document.getElementById('modalLogs').textContent = 'Fetching streaming logs...';
+      document.getElementById('logModal').style.display = 'flex';
+      try {
+        const res = await fetch('/api/v1/tasks/logs?task_id=' + runID);
+        if (res.ok) {
+          const text = await res.text();
+          document.getElementById('modalLogs').textContent = text || 'No logs written for this run yet.';
+        } else {
+          document.getElementById('modalLogs').textContent = 'No log stream found for ' + runID;
+        }
+      } catch (e) {
+        document.getElementById('modalLogs').textContent = 'Error fetching logs: ' + e;
+      }
+    }
+
+    function closeLogModal(e) {
+      if (e.target.id === 'logModal') {
+        document.getElementById('logModal').style.display = 'none';
+      }
+    }
+
+    function formatDuration(ns) {
+      const ms = ns / 1e6;
+      if (ms < 1000) return Math.round(ms) + 'ms';
+      const sec = ms / 1000;
+      if (sec < 60) return sec.toFixed(1) + 's';
+      const min = sec / 60;
+      if (min < 60) return min.toFixed(1) + 'm';
+      return (min / 60).toFixed(1) + 'h';
+    }
+
+    window.onload = loadDashboard;
+  </script>
+</body>
+</html>
