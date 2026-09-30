@@ -14,14 +14,16 @@ import (
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/rpc"
 	"github.com/glorch/kestrel/pkg/store"
+	"github.com/glorch/kestrel/pkg/webhook"
 )
 
 // Server represents the Kestrel central control plane coordinating distributed runners.
 type Server struct {
-	mu           sync.RWMutex
-	store        store.Store
-	gateMgr      *cd.GateManager
-	runners      map[string]*rpc.RunnerInfo
+	mu            sync.RWMutex
+	store         store.Store
+	gateMgr       *cd.GateManager
+	webhookSecret string
+	runners       map[string]*rpc.RunnerInfo
 	queue        []*rpc.TaskSpec
 	inFlight     map[string]*rpc.TaskSpec
 	taskLogs     map[string]*strings.Builder
@@ -374,7 +376,35 @@ func (s *Server) HTTPHandler() http.Handler {
 		writeJSONResponse(w, map[string]string{"status": "APPROVED", "gate_id": payload.GateID})
 	})
 
+	// Webhook endpoint: handles incoming Git push/PR events
+	mainMux.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		event, err := webhook.ParseRequest(r, s.webhookSecret)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("webhook error: %v", err), http.StatusBadRequest)
+			return
+		}
+		writeJSONResponse(w, map[string]interface{}{
+			"status":   "RECEIVED",
+			"provider": event.Provider,
+			"event":    event.Type,
+			"repo":     event.Repo,
+			"branch":   event.Branch,
+			"commit":   event.Commit,
+		})
+	})
+
 	return mainMux
+}
+
+// SetWebhookSecret configures the shared HMAC secret for webhook signature validation.
+func (s *Server) SetWebhookSecret(secret string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.webhookSecret = secret
 }
 
 // GateManager returns the server's approval gate manager.
