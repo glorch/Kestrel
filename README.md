@@ -30,15 +30,19 @@ It functions both as an effortless local pipeline executor (run pipelines locall
 - **⚡ Zero Overhead & Instant Startup**: Single static Go binary without heavy runtimes (no Java JVM, no Python virtualenvs).
 - **🕸️ DAG Topological Scheduling**: Automatic dependency resolution and parallel stage batching powered by Kahn's algorithm (`needs: [...]`).
 - **🔲 Matrix Build Expansion**: Multi-dimensional matrix build matrix (`matrix: { os: [linux, win], go: [1.22, 1.23] }`) with automatic downstream dependency rewiring and variable substitution.
+- **📂 Monorepo Path Filtering**: Intelligent change-path matching with glob & negation patterns (`paths: ["services/auth/**", "!**/*.md"]`) skipping unaffected jobs and saving compute.
+- **⚡ Parallel Test Slicing (`actions/test-split`)**: Automated test discovery and balanced execution partitioning across matrix workers using greedy bin-packing and execution timing history.
 - **🔀 Conditional Execution (`if: ...`)**: Support for `always()`, `success()`, `failure()`, and environment expressions (`${{ env.BRANCH == 'main' }}`).
 - **🔄 Fault-Tolerant Retries**: Configurable job and step-level retry policies (`retries: 2`, `retry-interval: "1s"`) to eliminate flaky network or transient build errors.
 - **🚀 Distributed Build Cache (`actions/cache`)**: Archive compression and prefix restore-keys caching for Go build cache, node_modules, and Maven dependencies.
 - **🔒 Concurrency Groups & In-Flight Cancellation**: Mutual exclusion locking (`concurrency: { group: "prod-deploy", cancel-in-progress: true }`) preventing race conditions in deployment pipelines.
-- **🧩 Declarative Actions Ecosystem**: Reusable step plugins (`uses: actions/setup-go`, `actions/checkout`, `actions/cache`, `actions/upload-artifact`).
+- **👥 Multi-Tenant Concurrency Quota & QoS Priority**: Tenant-level concurrent job limits (`kestrel quota set`) and weighted priority preemptive dispatching (`priority: 100`).
+- **🧩 Declarative Actions Ecosystem**: Reusable step plugins (`uses: actions/setup-go`, `actions/checkout`, `actions/cache`, `actions/test-split`, `actions/upload-artifact`).
 - **🐳 Dual Runtime Drivers**:
   - **Docker Engine**: Isolated, reproducible container execution via native Docker SDK with automatic bind-mount workspace.
   - **Host / Shell**: Native execution across Linux, macOS, and Windows PowerShell for maximum raw speed.
 - **🛡️ DevSecOps & Supply Chain Security**:
+  - **OIDC Keyless Cloud Identity Federation**: Zero-trust ephemeral JWT token minting (`kestrel oidc token`) compatible with AWS IAM AssumeRoleWithWebIdentity, GCP Workload Identity, and HashiCorp Vault.
   - **Secrets Log Masking**: Automatic real-time redaction of sensitive credentials, passwords, and tokens (`***`) from stdout/stderr.
   - **CycloneDX 1.5 SBOM**: Automated Software Bill of Materials generation (`kestrel sbom`).
   - **Security Gate Policy**: Threshold enforcement on Critical/High vulnerabilities.
@@ -58,6 +62,8 @@ It functions both as an effortless local pipeline executor (run pipelines locall
   - `kestrel run`: Execute pipelines locally or in CI environments.
   - `kestrel lint`: Static analysis for YAML syntax, missing dependencies, and dependency cycles.
   - `kestrel graph`: Print ASCII execution flowcharts or export GitHub-compatible Mermaid diagrams.
+  - `kestrel quota`: Monitor and enforce multi-tenant concurrency quotas.
+  - `kestrel oidc`: Generate and verify ephemeral zero-trust cloud credentials.
   - `kestrel freeze`: Manage deployment freeze windows and policies.
   - `kestrel notify`: Dispatch ChatOps notifications directly from scripts or pipelines.
   - `kestrel metrics`: Inspect DORA engineering productivity and delivery performance.
@@ -203,6 +209,14 @@ kestrel runs list
 
 # Inspect DORA DevOps engineering delivery performance
 kestrel metrics dora --days 30
+
+# Manage multi-tenant concurrency quotas
+kestrel quota list
+kestrel quota set --tenant payments --limit 5
+
+# Request ephemeral OIDC JWT token for keyless cloud provider authentication
+kestrel oidc token --run-id run-101 --job-id deploy --audience sts.amazonaws.com
+kestrel oidc verify --token <jwt-token> --audience sts.amazonaws.com
 ```
 
 #### Modern Web UI Console
@@ -219,7 +233,7 @@ In your browser to interactively view the pipeline execution topology, real-time
 ```text
 Kestrel/
 ├── cmd/
-│   └── kestrel/             # Unified CLI (run, server, runner, approvals, freeze, notify, metrics, sbom)
+│   └── kestrel/             # Unified CLI (run, server, runner, approvals, freeze, notify, metrics, quota, oidc, sbom)
 ├── pkg/
 │   ├── artifact/            # Artifact archiving and persistence
 │   ├── cache/               # Distributed build and dependency cache manager (actions/cache)
@@ -230,13 +244,14 @@ Kestrel/
 │   ├── logger/              # Thread-safe terminal stream logger with secrets masking
 │   ├── metrics/             # DORA DevOps engineering performance metrics calculator
 │   ├── notify/              # Multi-channel ChatOps notification hub (Feishu, DingTalk, WeCom, Slack)
-│   ├── pipeline/            # YAML parser, matrix expansion, condition evaluator, concurrency
-│   ├── plugin/              # Declarative step actions & plugin registry (setup-go, checkout, cache)
+│   ├── pipeline/            # YAML parser, matrix expansion, condition evaluator, Monorepo paths filter
+│   ├── plugin/              # Declarative step actions & plugin registry (setup-go, checkout, cache, test-split)
 │   ├── rpc/                 # Server ⇋ Runner distributed RPC protocol
 │   ├── runner/              # Distributed runner daemon with streaming log upload
-│   ├── security/            # Secrets masking, CycloneDX SBOM, and vulnerability gates
-│   ├── server/              # Central control plane, queue scheduler, REST API & embedded Web UI
+│   ├── security/            # OIDC token issuer & validator, secrets masking, CycloneDX SBOM
+│   ├── server/              # Central control plane, priority queue scheduler, tenant quota & embedded Web UI
 │   ├── store/               # In-memory, persistent run store and zero-OOM file log store
+│   ├── testutil/            # Parallel test case splitting and balanced load distribution
 │   ├── version/             # Build and release metadata
 │   └── webhook/             # Git Webhook signature verification and path filtering
 ├── test/
