@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,12 +23,13 @@ import (
 
 // Server represents the Kestrel central control plane coordinating distributed runners.
 type Server struct {
-	mu            sync.RWMutex
-	store         store.Store
-	logStore      store.LogStore
+	mu             sync.RWMutex
+	store          store.Store
+	logStore       store.LogStore
 	gateMgr        *cd.GateManager
 	freezeMgr      *cd.FreezeManager
 	concurrencyMgr *ConcurrencyManager
+	quotaMgr       *QuotaManager
 	webhookSecret  string
 	runners        map[string]*rpc.RunnerInfo
 	queue          []*rpc.TaskSpec
@@ -50,6 +52,7 @@ func NewServer(st store.Store) *Server {
 		gateMgr:        cd.NewGateManager(),
 		freezeMgr:      cd.NewFreezeManager(),
 		concurrencyMgr: NewConcurrencyManager(),
+		quotaMgr:       NewQuotaManager(),
 		runners:        make(map[string]*rpc.RunnerInfo),
 		queue:          make([]*rpc.TaskSpec, 0),
 		inFlight:       make(map[string]*rpc.TaskSpec),
@@ -68,6 +71,11 @@ func (s *Server) FreezeManager() *cd.FreezeManager {
 // ConcurrencyManager returns the concurrency lock manager.
 func (s *Server) ConcurrencyManager() *ConcurrencyManager {
 	return s.concurrencyMgr
+}
+
+// QuotaManager returns the multi-tenant concurrency quota manager.
+func (s *Server) QuotaManager() *QuotaManager {
+	return s.quotaMgr
 }
 
 // RegisterRunner handles runner agent registration.
@@ -101,6 +109,11 @@ func (s *Server) PollTask(ctx context.Context, req *rpc.PollTaskRequest) (*rpc.P
 
 	for i, task := range s.queue {
 		if s.matchesRunner(task, req.Tags) {
+			if task.Tenant != "" {
+				if acquired, err := s.quotaMgr.TryAcquire(task.Tenant); !acquired || err != nil {
+					continue
+				}
+			}
 			// Remove from queue
 			s.queue = append(s.queue[:i], s.queue[i+1:]...)
 			s.inFlight[task.TaskID] = task
@@ -144,6 +157,10 @@ func (s *Server) CompleteTask(ctx context.Context, req *rpc.CompleteTaskRequest)
 		return &rpc.CompleteTaskResponse{Acknowledged: true}, nil
 	}
 	delete(s.inFlight, req.TaskID)
+
+	if task.Tenant != "" {
+		s.quotaMgr.Release(task.Tenant)
+	}
 
 	// Record job run in store
 	now := time.Now()
@@ -237,21 +254,39 @@ func (s *Server) finalizeRun(ctx context.Context, runID, status string) {
 	}
 }
 
+func (s *Server) enqueueTask(task *rpc.TaskSpec) {
+	s.queue = append(s.queue, task)
+	sort.SliceStable(s.queue, func(i, j int) bool {
+		return s.queue[i].Priority > s.queue[j].Priority
+	})
+}
+
 func (s *Server) enqueueJob(runID, jobID string, job *pipeline.Job) {
+	priority := job.Priority
+	if priority == 0 {
+		priority = 50
+	}
+	tenant := ""
+	if s.runPipelines[runID] != nil {
+		tenant = s.runPipelines[runID].Tenant
+	}
+
 	taskID := fmt.Sprintf("%s-%s", runID, jobID)
 	task := &rpc.TaskSpec{
-		TaskID:     taskID,
-		RunID:      runID,
-		JobID:      jobID,
-		JobName:    job.Name,
-		RunsOn:     job.RunsOn,
-		Image:      job.Image,
-		Env:        job.Env,
-		WorkDir:    job.WorkDir,
+		TaskID:        taskID,
+		RunID:         runID,
+		JobID:         jobID,
+		JobName:       job.Name,
+		RunsOn:        job.RunsOn,
+		Image:         job.Image,
+		Env:           job.Env,
+		WorkDir:       job.WorkDir,
 		Steps:         job.NormalizedSteps(),
 		TimeoutSec:    int(job.ParsedTimeout().Seconds()),
 		Retries:       job.Retries,
 		RetryInterval: job.RetryInterval,
+		Priority:      priority,
+		Tenant:        tenant,
 	}
 
 	// Check Monorepo changed paths filter
@@ -324,13 +359,13 @@ func (s *Server) enqueueJob(runID, jobID string, job *pipeline.Job) {
 				return
 			}
 			s.mu.Lock()
-			s.queue = append(s.queue, task)
+			s.enqueueTask(task)
 			s.mu.Unlock()
 		}()
 		return
 	}
 
-	s.queue = append(s.queue, task)
+	s.enqueueTask(task)
 }
 
 var runCounter uint64
@@ -543,6 +578,34 @@ func (s *Server) HTTPHandler() http.Handler {
 			return
 		}
 		writeJSONResponse(w, report)
+	})
+
+	// REST API: List, query, or set tenant concurrency quotas
+	mainMux.HandleFunc("/api/v1/quotas", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			var payload struct {
+				Tenant        string `json:"tenant"`
+				MaxConcurrent int    `json:"max_concurrent"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			s.quotaMgr.SetQuota(payload.Tenant, payload.MaxConcurrent)
+			writeJSONResponse(w, map[string]interface{}{"status": "SET", "tenant": payload.Tenant, "max_concurrent": payload.MaxConcurrent})
+			return
+		}
+		tenant := r.URL.Query().Get("tenant")
+		if tenant != "" {
+			q, exists := s.quotaMgr.GetQuota(tenant)
+			if !exists {
+				http.Error(w, "tenant quota not found", http.StatusNotFound)
+				return
+			}
+			writeJSONResponse(w, q)
+			return
+		}
+		writeJSONResponse(w, s.quotaMgr.ListQuotas())
 	})
 
 	// Mount embedded Web UI console

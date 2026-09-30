@@ -11,6 +11,7 @@ import (
 type Pipeline struct {
 	Version     string             `yaml:"version" json:"version"`
 	Name        string             `yaml:"name" json:"name"`
+	Tenant      string             `yaml:"tenant,omitempty" json:"tenant,omitempty"`
 	Env         map[string]string  `yaml:"env,omitempty" json:"env,omitempty"`
 	Concurrency *ConcurrencyConfig `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
 	Jobs        map[string]*Job    `yaml:"jobs" json:"jobs"`
@@ -58,6 +59,7 @@ type Job struct {
 	Approval        bool                `yaml:"approval,omitempty" json:"approval,omitempty"`       // Whether manual approval is required before execution
 	Concurrency     *ConcurrencyConfig  `yaml:"concurrency,omitempty" json:"concurrency,omitempty"` // Job-level concurrency group
 	Paths           []string            `yaml:"paths,omitempty" json:"paths,omitempty"`                     // Monorepo changed path patterns (e.g. ["services/order/**"])
+	Priority        int                 `yaml:"priority,omitempty" json:"priority,omitempty"`               // Priority weight (higher value = earlier scheduling, default: 50)
 	Retries         int                 `yaml:"retries,omitempty" json:"retries,omitempty"`                 // Number of automatic retries on failure
 	RetryInterval   string              `yaml:"retry-interval,omitempty" json:"retry_interval,omitempty"`   // Delay between retries (e.g. "1s", "500ms")
 }

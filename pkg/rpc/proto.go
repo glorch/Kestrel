@@ -57,6 +57,8 @@ type TaskSpec struct {
 	TimeoutSec    int               `json:"timeout_sec"`
 	Retries       int               `json:"retries,omitempty"`
 	RetryInterval string            `json:"retry_interval,omitempty"`
+	Priority      int               `json:"priority,omitempty"`
+	Tenant        string            `json:"tenant,omitempty"`
 }
 
 // PollTaskRequest asks server if any matching task is available for execution.
