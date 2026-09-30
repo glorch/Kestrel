@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/glorch/kestrel/pkg/cd"
@@ -22,16 +23,17 @@ type Server struct {
 	mu            sync.RWMutex
 	store         store.Store
 	logStore      store.LogStore
-	gateMgr       *cd.GateManager
-	freezeMgr     *cd.FreezeManager
-	webhookSecret string
-	runners       map[string]*rpc.RunnerInfo
-	queue         []*rpc.TaskSpec
-	inFlight      map[string]*rpc.TaskSpec
-	runPipelines  map[string]*pipeline.Pipeline // runID -> parsed pipeline
-	runBatches    map[string][][]string         // runID -> stages
-	runStageIdx   map[string]int                // runID -> current stage index
-	runJobStatus  map[string]map[string]string  // runID -> jobID -> status
+	gateMgr        *cd.GateManager
+	freezeMgr      *cd.FreezeManager
+	concurrencyMgr *ConcurrencyManager
+	webhookSecret  string
+	runners        map[string]*rpc.RunnerInfo
+	queue          []*rpc.TaskSpec
+	inFlight       map[string]*rpc.TaskSpec
+	runPipelines   map[string]*pipeline.Pipeline // runID -> parsed pipeline
+	runBatches     map[string][][]string         // runID -> stages
+	runStageIdx    map[string]int                // runID -> current stage index
+	runJobStatus   map[string]map[string]string  // runID -> jobID -> status
 }
 
 // NewServer creates a new Kestrel control plane server.
@@ -41,23 +43,29 @@ func NewServer(st store.Store) *Server {
 	}
 	ls, _ := store.NewFileLogStore("")
 	return &Server{
-		store:        st,
-		logStore:     ls,
-		gateMgr:      cd.NewGateManager(),
-		freezeMgr:    cd.NewFreezeManager(),
-		runners:      make(map[string]*rpc.RunnerInfo),
-		queue:        make([]*rpc.TaskSpec, 0),
-		inFlight:     make(map[string]*rpc.TaskSpec),
-		runPipelines: make(map[string]*pipeline.Pipeline),
-		runBatches:   make(map[string][][]string),
-		runStageIdx:  make(map[string]int),
-		runJobStatus: make(map[string]map[string]string),
+		store:          st,
+		logStore:       ls,
+		gateMgr:        cd.NewGateManager(),
+		freezeMgr:      cd.NewFreezeManager(),
+		concurrencyMgr: NewConcurrencyManager(),
+		runners:        make(map[string]*rpc.RunnerInfo),
+		queue:          make([]*rpc.TaskSpec, 0),
+		inFlight:       make(map[string]*rpc.TaskSpec),
+		runPipelines:   make(map[string]*pipeline.Pipeline),
+		runBatches:     make(map[string][][]string),
+		runStageIdx:    make(map[string]int),
+		runJobStatus:   make(map[string]map[string]string),
 	}
 }
 
 // FreezeManager returns the server's change freeze manager.
 func (s *Server) FreezeManager() *cd.FreezeManager {
 	return s.freezeMgr
+}
+
+// ConcurrencyManager returns the concurrency lock manager.
+func (s *Server) ConcurrencyManager() *ConcurrencyManager {
+	return s.concurrencyMgr
 }
 
 // RegisterRunner handles runner agent registration.
@@ -213,6 +221,10 @@ func (s *Server) checkAndProgressPipeline(ctx context.Context, runID string) {
 }
 
 func (s *Server) finalizeRun(ctx context.Context, runID, status string) {
+	if p, ok := s.runPipelines[runID]; ok && p.Concurrency != nil && p.Concurrency.Group != "" {
+		s.concurrencyMgr.Release(p.Concurrency.Group, runID)
+	}
+
 	runRec, err := s.store.GetRun(ctx, runID)
 	if err == nil && runRec != nil {
 		now := time.Now()
@@ -286,6 +298,8 @@ func (s *Server) enqueueJob(runID, jobID string, job *pipeline.Job) {
 	s.queue = append(s.queue, task)
 }
 
+var runCounter uint64
+
 // TriggerPipeline triggers a new pipeline execution from a parsed pipeline.
 func (s *Server) TriggerPipeline(ctx context.Context, p *pipeline.Pipeline, triggerType string) (string, error) {
 	s.mu.Lock()
@@ -302,7 +316,20 @@ func (s *Server) TriggerPipeline(ctx context.Context, p *pipeline.Pipeline, trig
 		return "", fmt.Errorf("DAG resolution error: %w", err)
 	}
 
-	runID := fmt.Sprintf("run-%d", time.Now().UnixNano()/1e6)
+	seq := atomic.AddUint64(&runCounter, 1)
+	runID := fmt.Sprintf("run-%d-%d", time.Now().UnixNano()/1e6, seq)
+
+	// Concurrency group check & lock acquisition
+	if p.Concurrency != nil && p.Concurrency.Group != "" {
+		acquired, cancelledID, err := s.concurrencyMgr.Acquire(p.Concurrency.Group, runID, p.Concurrency.CancelInProgress, nil)
+		if !acquired {
+			return "", fmt.Errorf("concurrency limit: %w", err)
+		}
+		if cancelledID != "" {
+			s.finalizeRun(ctx, cancelledID, "CANCELLED")
+		}
+	}
+
 	runRec := &store.PipelineRun{
 		ID:           runID,
 		PipelineName: p.Name,
