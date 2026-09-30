@@ -1,17 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/glorch/kestrel/pkg/cd"
 	"github.com/glorch/kestrel/pkg/dag"
 	"github.com/glorch/kestrel/pkg/engine"
 	"github.com/glorch/kestrel/pkg/logger"
 	"github.com/glorch/kestrel/pkg/pipeline"
+	"github.com/glorch/kestrel/pkg/runner"
+	"github.com/glorch/kestrel/pkg/security"
+	"github.com/glorch/kestrel/pkg/server"
+	"github.com/glorch/kestrel/pkg/store"
 	"github.com/glorch/kestrel/pkg/version"
 )
 
@@ -21,6 +33,24 @@ var (
 	forceExecutor string
 	workDir       string
 	graphFormat   string
+
+	// Server flags
+	serverPort    int
+	serverStore   string
+	webhookSecret string
+
+	// Runner flags
+	runnerServerURL string
+	runnerID        string
+	runnerTags      string
+	runnerCapacity  int
+
+	// SBOM flags
+	sbomOutFile string
+
+	// Approval flags
+	approvalApprover string
+	approvalComment  string
 )
 
 func findConfigFile(specified string) (string, error) {
@@ -61,7 +91,7 @@ func main() {
 	// --- RUN COMMAND ---
 	runCmd := &cobra.Command{
 		Use:   "run [path]",
-		Short: "Execute a local or remote pipeline",
+		Short: "Execute a local pipeline",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := configFile
 			if len(args) > 0 {
@@ -78,10 +108,17 @@ func main() {
 				return fmt.Errorf("configuration error: %w", err)
 			}
 
+			fs, err := store.NewFileStore(".kestrel/store")
+			var st store.Store = store.NewMemoryStore()
+			if err == nil {
+				st = fs
+			}
+
 			eng := engine.New(p, engine.Options{
 				WorkDir:       workDir,
 				ForceExecutor: forceExecutor,
 				DryRun:        dryRun,
+				Store:         st,
 			}, logger.Default())
 
 			return eng.Run(context.Background())
@@ -111,7 +148,6 @@ func main() {
 				return fmt.Errorf("lint error: %w", err)
 			}
 
-			// Validate DAG
 			g, err := dag.BuildGraph(p.Jobs)
 			if err != nil {
 				return fmt.Errorf("DAG topology error: %w", err)
@@ -168,6 +204,245 @@ func main() {
 	}
 	graphCmd.Flags().StringVarP(&graphFormat, "format", "m", "ascii", "Graph output format: 'ascii' or 'mermaid'")
 
+	// --- SERVER COMMAND ---
+	serverCmd := &cobra.Command{
+		Use:   "server",
+		Short: "Manage Kestrel distributed control plane server",
+	}
+
+	serverStartCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start Kestrel central control plane server",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fs, err := store.NewFileStore(serverStore)
+			if err != nil {
+				return fmt.Errorf("failed to initialize store: %w", err)
+			}
+
+			srv := server.NewServer(fs)
+			if webhookSecret != "" {
+				srv.SetWebhookSecret(webhookSecret)
+			}
+
+			addr := fmt.Sprintf(":%d", serverPort)
+			httpServer := &http.Server{
+				Addr:    addr,
+				Handler: srv.HTTPHandler(),
+			}
+
+			fmt.Println(color.CyanString("🦅 Kestrel Central Server starting on %s...", addr))
+			fmt.Println(color.WhiteString("  • RPC Endpoint: http://localhost:%d/rpc/", serverPort))
+			fmt.Println(color.WhiteString("  • REST API:     http://localhost:%d/api/v1/", serverPort))
+			fmt.Println(color.WhiteString("  • Webhook:      http://localhost:%d/webhook", serverPort))
+
+			// Graceful shutdown
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+			go func() {
+				<-sigCh
+				fmt.Println("\nShutting down server...")
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = httpServer.Shutdown(ctx)
+			}()
+
+			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return err
+			}
+			return nil
+		},
+	}
+	serverStartCmd.Flags().IntVarP(&serverPort, "port", "p", 8080, "HTTP/RPC listen port")
+	serverStartCmd.Flags().StringVar(&serverStore, "store-dir", ".kestrel/store", "Persistent data store directory")
+	serverStartCmd.Flags().StringVar(&webhookSecret, "webhook-secret", "", "Shared secret for Git webhook signature validation")
+	serverCmd.AddCommand(serverStartCmd)
+
+	// --- RUNNER COMMAND ---
+	runnerCmd := &cobra.Command{
+		Use:   "runner",
+		Short: "Manage Kestrel distributed worker runner agent",
+	}
+
+	runnerStartCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start runner daemon and connect to central server",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tags := strings.Split(runnerTags, ",")
+			for i := range tags {
+				tags[i] = strings.TrimSpace(tags[i])
+			}
+
+			daemon := runner.NewDaemon(runner.Config{
+				ID:        runnerID,
+				ServerURL: runnerServerURL,
+				Tags:      tags,
+				Capacity:  runnerCapacity,
+			})
+
+			fmt.Println(color.CyanString("🏃 Kestrel Runner connecting to %s...", runnerServerURL))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+			go func() {
+				<-sigCh
+				fmt.Println("\nStopping runner...")
+				daemon.Stop()
+				cancel()
+			}()
+
+			return daemon.Start(ctx)
+		},
+	}
+	runnerStartCmd.Flags().StringVarP(&runnerServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+	runnerStartCmd.Flags().StringVar(&runnerID, "id", "", "Custom runner ID (default: auto-generated)")
+	runnerStartCmd.Flags().StringVar(&runnerTags, "tags", "host,docker", "Comma-separated runner tags")
+	runnerStartCmd.Flags().IntVarP(&runnerCapacity, "capacity", "c", 2, "Maximum concurrent jobs")
+	runnerCmd.AddCommand(runnerStartCmd)
+
+	// --- SBOM COMMAND ---
+	sbomCmd := &cobra.Command{
+		Use:   "sbom [path_to_go_mod]",
+		Short: "Generate CycloneDX 1.5 Software Bill of Materials (SBOM)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetMod := "go.mod"
+			if len(args) > 0 {
+				targetMod = args[0]
+			}
+
+			sbom, err := security.GenerateSBOMFromGoMod("kestrel-app", "v0.2.0", targetMod)
+			if err != nil {
+				return err
+			}
+
+			jsonBytes, err := sbom.ExportJSON()
+			if err != nil {
+				return err
+			}
+
+			if sbomOutFile != "" {
+				if err := os.WriteFile(sbomOutFile, jsonBytes, 0644); err != nil {
+					return err
+				}
+				fmt.Println(color.GreenString("✔ CycloneDX SBOM saved to %s (%d components)", sbomOutFile, len(sbom.Components)))
+			} else {
+				fmt.Println(string(jsonBytes))
+			}
+			return nil
+		},
+	}
+	sbomCmd.Flags().StringVarP(&sbomOutFile, "out", "o", "", "Output file path (default: stdout)")
+
+	// --- APPROVALS COMMAND ---
+	approvalsCmd := &cobra.Command{
+		Use:   "approvals",
+		Short: "Manage CD manual approval gates",
+	}
+
+	approvalsListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List pending approval gates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resp, err := http.Get(runnerServerURL + "/api/v1/approvals")
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			var gates []*cd.GateRequest
+			if err := json.NewDecoder(resp.Body).Decode(&gates); err != nil {
+				return err
+			}
+
+			if len(gates) == 0 {
+				fmt.Println("No pending approval gates.")
+				return nil
+			}
+
+			fmt.Println("Pending Approval Gates:")
+			for _, g := range gates {
+				fmt.Printf("  • Gate ID: %s | Run: %s | Job: %s | Env: %s | Expires: %s\n",
+					color.YellowString(g.ID), g.RunID, g.JobID, g.Environment, g.ExpiresAt.Format("15:04:05"))
+			}
+			return nil
+		},
+	}
+	approvalsListCmd.Flags().StringVarP(&runnerServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+
+	approvalsApproveCmd := &cobra.Command{
+		Use:   "approve <gate_id>",
+		Short: "Approve a pending gate to continue pipeline deployment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			gateID := args[0]
+			payload := map[string]string{
+				"gate_id":  gateID,
+				"approver": approvalApprover,
+				"comment":  approvalComment,
+			}
+			data, _ := json.Marshal(payload)
+			resp, err := http.Post(runnerServerURL+"/api/v1/approvals/approve", "application/json", bytes.NewReader(data))
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode >= 400 {
+				return fmt.Errorf("approval failed with HTTP %d", resp.StatusCode)
+			}
+
+			fmt.Println(color.GreenString("✔ Gate '%s' approved by %s!", gateID, approvalApprover))
+			return nil
+		},
+	}
+	approvalsApproveCmd.Flags().StringVarP(&runnerServerURL, "server", "s", "http://localhost:8080", "Kestrel server address")
+	approvalsApproveCmd.Flags().StringVarP(&approvalApprover, "approver", "a", "admin", "Approver username")
+	approvalsApproveCmd.Flags().StringVarP(&approvalComment, "comment", "m", "Approved via CLI", "Approval comment")
+
+	approvalsCmd.AddCommand(approvalsListCmd, approvalsApproveCmd)
+
+	// --- RUNS COMMAND ---
+	runsCmd := &cobra.Command{
+		Use:   "runs",
+		Short: "Inspect pipeline execution history",
+	}
+
+	runsListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List recorded pipeline runs",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fs, err := store.NewFileStore(".kestrel/store")
+			if err != nil {
+				return err
+			}
+			runs, err := fs.ListRuns(context.Background(), store.RunFilter{})
+			if err != nil {
+				return err
+			}
+
+			if len(runs) == 0 {
+				fmt.Println("No recorded pipeline runs found in .kestrel/store")
+				return nil
+			}
+
+			fmt.Println("Recent Pipeline Runs:")
+			for _, r := range runs {
+				statusColor := color.GreenString(r.Status)
+				if r.Status == "FAILED" {
+					statusColor = color.RedString(r.Status)
+				}
+				fmt.Printf("  • [%s] %-20s %s (%s, %s)\n",
+					r.ID, r.PipelineName, statusColor, r.StartedAt.Format("2006-01-02 15:04:05"), r.Trigger)
+			}
+			return nil
+		},
+	}
+	runsCmd.AddCommand(runsListCmd)
+
 	// --- VERSION COMMAND ---
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -177,7 +452,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, versionCmd)
+	rootCmd.AddCommand(runCmd, lintCmd, graphCmd, serverCmd, runnerCmd, sbomCmd, approvalsCmd, runsCmd, versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
