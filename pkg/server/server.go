@@ -460,8 +460,26 @@ func (s *Server) HTTPHandler() http.Handler {
 		writeJSONResponse(w, list)
 	})
 
-	// REST API: List runs
+	// REST API: List runs or get run details with job runs
 	mainMux.HandleFunc("/api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
+		runID := r.URL.Query().Get("id")
+		if runID == "" {
+			runID = r.URL.Query().Get("run_id")
+		}
+		if runID != "" {
+			run, err := s.store.GetRun(r.Context(), runID)
+			if err != nil || run == nil {
+				http.Error(w, "run not found", http.StatusNotFound)
+				return
+			}
+			jobRuns, _ := s.store.GetJobRuns(r.Context(), runID)
+			writeJSONResponse(w, map[string]interface{}{
+				"run":      run,
+				"job_runs": jobRuns,
+			})
+			return
+		}
+
 		runs, err := s.store.ListRuns(r.Context(), store.RunFilter{})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
