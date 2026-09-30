@@ -222,6 +222,24 @@ func (e *Engine) executeJob(ctx context.Context, jobID string) {
 		return
 	}
 
+	// Check Monorepo changed paths filter
+	if len(job.Paths) > 0 {
+		var changedFiles []string
+		if rawChanged := combinedEnv["KESTREL_CHANGED_FILES"]; rawChanged != "" {
+			for _, f := range strings.Split(rawChanged, ",") {
+				f = strings.TrimSpace(f)
+				if f != "" {
+					changedFiles = append(changedFiles, f)
+				}
+			}
+		}
+		if len(changedFiles) > 0 && !pipeline.ShouldRunForPaths(job.Paths, changedFiles) {
+			e.logger.JobSkipped(jobID, "no matching changed files in paths filter")
+			e.setJobStatus(jobID, StatusSkipped, 0)
+			return
+		}
+	}
+
 	// Set timeout context
 	jobCtx, cancel := context.WithTimeout(ctx, job.ParsedTimeout())
 	defer cancel()

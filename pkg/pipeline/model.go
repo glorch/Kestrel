@@ -57,6 +57,7 @@ type Job struct {
 	Environment     string              `yaml:"environment,omitempty" json:"environment,omitempty"` // Target deployment environment
 	Approval        bool                `yaml:"approval,omitempty" json:"approval,omitempty"`       // Whether manual approval is required before execution
 	Concurrency     *ConcurrencyConfig  `yaml:"concurrency,omitempty" json:"concurrency,omitempty"` // Job-level concurrency group
+	Paths           []string            `yaml:"paths,omitempty" json:"paths,omitempty"`                     // Monorepo changed path patterns (e.g. ["services/order/**"])
 	Retries         int                 `yaml:"retries,omitempty" json:"retries,omitempty"`                 // Number of automatic retries on failure
 	RetryInterval   string              `yaml:"retry-interval,omitempty" json:"retry_interval,omitempty"`   // Delay between retries (e.g. "1s", "500ms")
 }

@@ -254,6 +254,39 @@ func (s *Server) enqueueJob(runID, jobID string, job *pipeline.Job) {
 		RetryInterval: job.RetryInterval,
 	}
 
+	// Check Monorepo changed paths filter
+	if len(job.Paths) > 0 {
+		var changedFiles []string
+		rawChanged := ""
+		if job.Env != nil {
+			rawChanged = job.Env["KESTREL_CHANGED_FILES"]
+		}
+		if rawChanged == "" && s.runPipelines[runID] != nil && s.runPipelines[runID].Env != nil {
+			rawChanged = s.runPipelines[runID].Env["KESTREL_CHANGED_FILES"]
+		}
+		if rawChanged != "" {
+			for _, f := range strings.Split(rawChanged, ",") {
+				f = strings.TrimSpace(f)
+				if f != "" {
+					changedFiles = append(changedFiles, f)
+				}
+			}
+		}
+		if len(changedFiles) > 0 && !pipeline.ShouldRunForPaths(job.Paths, changedFiles) {
+			s.mu.Lock()
+			if statuses, exists := s.runJobStatus[runID]; exists {
+				statuses[jobID] = "SKIPPED"
+				go func() {
+					s.mu.Lock()
+					defer s.mu.Unlock()
+					s.checkAndProgressPipeline(context.Background(), runID)
+				}()
+			}
+			s.mu.Unlock()
+			return
+		}
+	}
+
 	// Check if target environment is currently blocked by change freeze calendar
 	if job.Environment != "" {
 		bypassToken := ""
