@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
+	"github.com/glorch/kestrel/pkg/cache"
 	"github.com/glorch/kestrel/pkg/pipeline"
 	"github.com/glorch/kestrel/pkg/security"
 )
@@ -63,6 +65,7 @@ func init() {
 	DefaultRegistry.Register(&SetupGoAction{})
 	DefaultRegistry.Register(&EchoAction{})
 	DefaultRegistry.Register(&SBOMAction{})
+	DefaultRegistry.Register(&CacheAction{})
 }
 
 // --- Built-in Action: actions/checkout ---
@@ -144,6 +147,79 @@ func (a *SBOMAction) Execute(ctx context.Context, actCtx *ActionContext) error {
 	fmt.Fprintf(actCtx.Out, "✔ Generated CycloneDX SBOM (%d components) at %s\n", len(sbom.Components), outFile)
 	return nil
 }
+
+// --- Built-in Action: actions/cache ---
+type CacheAction struct{}
+
+func (a *CacheAction) Name() string        { return "actions/cache" }
+func (a *CacheAction) Description() string { return "Restores and saves build and dependency caches" }
+
+func (a *CacheAction) Execute(ctx context.Context, actCtx *ActionContext) error {
+	pathStr := actCtx.With["path"]
+	if pathStr == "" {
+		return fmt.Errorf("actions/cache requires 'path' input parameter")
+	}
+	key := actCtx.With["key"]
+	if key == "" {
+		return fmt.Errorf("actions/cache requires 'key' input parameter")
+	}
+
+	restoreKeysStr := actCtx.With["restore-keys"]
+	var restoreKeys []string
+	if restoreKeysStr != "" {
+		for _, k := range strings.Split(restoreKeysStr, ",") {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				restoreKeys = append(restoreKeys, k)
+			}
+		}
+	}
+
+	mode := actCtx.With["mode"]
+	if mode == "" {
+		mode = "auto" // auto: restore if exists, save if not
+	}
+
+	cacheDir := filepath.Join(actCtx.Workspace, ".kestrel", "cache")
+	mgr, err := cache.NewManager(cacheDir)
+	if err != nil {
+		return err
+	}
+
+	var targetPaths []string
+	for _, p := range strings.Split(pathStr, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			targetPaths = append(targetPaths, p)
+		}
+	}
+
+	if mode == "restore" || mode == "auto" {
+		matchedKey, found, err := mgr.Restore(ctx, key, restoreKeys, actCtx.Workspace)
+		if err != nil {
+			fmt.Fprintf(actCtx.Out, "⚠ Cache restore error: %v\n", err)
+		} else if found {
+			fmt.Fprintf(actCtx.Out, "✔ Cache restored successfully from key: %s\n", matchedKey)
+			if mode == "auto" {
+				return nil
+			}
+		} else {
+			fmt.Fprintf(actCtx.Out, "ℹ Cache miss for key '%s'\n", key)
+		}
+	}
+
+	if mode == "save" || mode == "auto" {
+		entry, err := mgr.Save(ctx, key, actCtx.Workspace, targetPaths)
+		if err != nil {
+			fmt.Fprintf(actCtx.Out, "⚠ Cache save error: %v\n", err)
+			return err
+		}
+		fmt.Fprintf(actCtx.Out, "✔ Cache saved successfully for key '%s' (%d bytes)\n", key, entry.Size)
+	}
+
+	return nil
+}
+
 
 // ExecuteStepAction checks if a step uses an action, and if so executes it via the registry.
 func ExecuteStepAction(ctx context.Context, step *pipeline.Step, actCtx *ActionContext) (bool, error) {
